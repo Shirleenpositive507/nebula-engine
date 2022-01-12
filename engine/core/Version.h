@@ -1,0 +1,5 @@
+#pragma once
+#define NEBULA_VERSION_MAJOR 0
+#define NEBULA_VERSION_MINOR 1
+#define NEBULA_VERSION_PATCH 0
+#define NEBULA_VERSION "0.1.0"
