@@ -1,0 +1,16 @@
+#pragma once
+
+#include "Color.h"
+#include "Vertex.h"
+#include "BlendMode.h"
+#include "PrimitiveType.h"
+#include "Viewport.h"
+#include "TextureManager.h"
+#include "Shader.h"
+#include "ShaderManager.h"
+#include "Camera.h"
+#include "CameraController.h"
+#include "SpriteBatch.h"
+#include "RenderTarget.h"
+#include "RenderTexture.h"
+#include "Renderer.h"
