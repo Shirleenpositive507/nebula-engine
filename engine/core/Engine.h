@@ -14,8 +14,19 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <array>
 
 namespace nebula {
+
+    enum class EngineState {
+        Uninitialized,
+        Initializing,
+        Running,
+        Paused,
+        Stopped
+    };
+
+    class EventBus;
 
     class Engine {
     public:
@@ -27,6 +38,9 @@ namespace nebula {
         void run();
         void stop();
 
+        void pause();
+        void resume();
+
         Window& getWindow() { return *m_window; }
         Input& getInput() { return Input::instance(); }
         Time& getTime() { return Time::instance(); }
@@ -35,16 +49,27 @@ namespace nebula {
         Config& getConfig() { return Config::instance(); }
         Profiler& getProfiler() { return Profiler::instance(); }
 
-        bool isRunning() const { return m_running; }
-        bool isInitialized() const { return m_initialized; }
+        bool isRunning() const { return m_state == EngineState::Running; }
+        bool isInitialized() const { return m_state != EngineState::Uninitialized; }
+        bool isPaused() const { return m_state == EngineState::Paused; }
+        EngineState getState() const { return m_state; }
         const std::string& getVersion() const { return m_version; }
 
         void setWindowTitle(const std::string& title);
         void setWindowSize(int width, int height);
         void setFullscreen(bool fullscreen);
 
+        void setClearColor(const sf::Color& color) { m_clearColor = color; }
+        const sf::Color& getClearColor() const { return m_clearColor; }
+
         void setUpdateCallback(std::function<void(float)> callback) { m_updateCallback = std::move(callback); }
         void setRenderCallback(std::function<void(float)> callback) { m_renderCallback = std::move(callback); }
+
+        void setFixedTimestep(float dt) { m_fixedTimestep = dt; }
+        float getFixedTimestep() const { return m_fixedTimestep; }
+
+        float getAccumulator() const { return m_accumulator; }
+        void setAccumulator(float acc) { m_accumulator = acc; }
 
     private:
         void onEvent(Event& event);
@@ -55,13 +80,17 @@ namespace nebula {
         std::unique_ptr<Window> m_window;
         std::unique_ptr<EventDispatcher> m_eventDispatcher;
         std::unique_ptr<GameLoop> m_gameLoop;
+        std::unique_ptr<EventBus> m_eventBus;
 
         std::function<void(float)> m_updateCallback;
         std::function<void(float)> m_renderCallback;
 
-        bool m_running = false;
-        bool m_initialized = false;
+        EngineState m_state = EngineState::Uninitialized;
+        sf::Color m_clearColor = sf::Color::Black;
+        float m_fixedTimestep = 1.0f / 60.0f;
+        float m_accumulator = 0.0f;
         std::string m_version = "1.0.0";
     };
 
 }
+
