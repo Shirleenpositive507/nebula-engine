@@ -45,6 +45,12 @@ namespace nebula {
         m_window.setKeyRepeatEnabled(true);
         m_window.setActive(true);
 
+        loadCursor(CursorStyle::Arrow);
+        loadCursor(CursorStyle::Hand);
+        loadCursor(CursorStyle::Text);
+        loadCursor(CursorStyle::Cross);
+        loadCursor(CursorStyle::Wait);
+
         NEBULA_INFO("Window created: " + title + " (" + std::to_string(m_width) + "x" + std::to_string(m_height) + ")");
         return true;
     }
@@ -88,14 +94,32 @@ namespace nebula {
                 case sf::Event::MouseWheelScrolled:
                     Input::instance().onMouseScrolled(event.mouseWheelScroll.delta);
                     break;
-                case sf::Event::Resized:
+                case sf::Event::Resized: {
                     m_width = event.size.width;
                     m_height = event.size.height;
                     m_window.setView(sf::View(sf::FloatRect(0, 0,
                         static_cast<float>(m_width), static_cast<float>(m_height))));
+                    if (m_resizeCallback) {
+                        m_resizeCallback(m_width, m_height);
+                    }
                     break;
+                }
                 case sf::Event::Closed:
-                    m_window.close();
+                    if (m_closeCallback) {
+                        m_closeCallback();
+                    } else {
+                        m_window.close();
+                    }
+                    break;
+                case sf::Event::GainedFocus:
+                    if (m_focusCallback) {
+                        m_focusCallback(true);
+                    }
+                    break;
+                case sf::Event::LostFocus:
+                    if (m_focusCallback) {
+                        m_focusCallback(false);
+                    }
                     break;
                 default:
                     break;
@@ -130,6 +154,11 @@ namespace nebula {
         } else {
             NEBULA_WARN("Failed to load window icon: " + path);
         }
+    }
+
+    void Window::setIconFromImage(const sf::Image& image) {
+        m_window.setIcon(image.getSize().x, image.getSize().y, image.getPixelsPtr());
+        NEBULA_INFO("Window icon set from image");
     }
 
     void Window::setFullscreen(bool fullscreen) {
@@ -196,8 +225,109 @@ namespace nebula {
         return m_window.hasFocus();
     }
 
+    bool Window::setCursorStyle(CursorStyle style) {
+        if (!loadCursor(style)) {
+            NEBULA_WARN("Failed to load cursor style: " + std::to_string(static_cast<int>(style)));
+            return false;
+        }
+        auto it = m_cursors.find(static_cast<int>(style));
+        if (it != m_cursors.end() && it->second) {
+            m_window.setMouseCursor(*it->second);
+            m_currentCursor = style;
+            return true;
+        }
+        return false;
+    }
+
+    void Window::setCursorVisible(bool visible) {
+        m_cursorVisible = visible;
+        m_window.setMouseCursorVisible(visible);
+    }
+
+    void Window::setCursorGrabbed(bool grabbed) {
+        m_cursorGrabbed = grabbed;
+        m_window.setMouseCursorGrabbed(grabbed);
+    }
+
+    void Window::setTitleBarColor(const sf::Color& color) {
+        (void)color;
+    #ifdef NEBULA_PLATFORM_WINDOWS
+        HWND hwnd = m_window.getSystemHandle();
+        if (hwnd) {
+            SetWindowLongPtr(hwnd, GWL_EXSTYLE, GetWindowLongPtr(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
+            SetLayeredWindowAttributes(hwnd, RGB(color.r, color.g, color.b), 0, LWA_COLORKEY);
+        }
+    #endif
+    }
+
+    void Window::setTitleBarHeight(int height) {
+        (void)height;
+    #ifdef NEBULA_PLATFORM_WINDOWS
+        HWND hwnd = m_window.getSystemHandle();
+        if (hwnd) {
+            RECT rect;
+            GetWindowRect(hwnd, &rect);
+            SetWindowPos(hwnd, nullptr, rect.left, rect.top,
+                         rect.right - rect.left, rect.bottom - rect.top + height - 30,
+                         SWP_FRAMECHANGED | SWP_NOZORDER);
+        }
+    #endif
+    }
+
+    int Window::getMonitorCount() const {
+        return static_cast<int>(sf::VideoMode::getFullscreenModes().size());
+    }
+
+    sf::VideoMode Window::getMonitorMode(int monitor) const {
+        auto modes = sf::VideoMode::getFullscreenModes();
+        if (monitor >= 0 && monitor < static_cast<int>(modes.size())) {
+            return modes[monitor];
+        }
+        return sf::VideoMode::getDesktopMode();
+    }
+
+    std::string Window::getMonitorName(int monitor) const {
+        (void)monitor;
+        return "Monitor " + std::to_string(monitor);
+    }
+
+    bool Window::loadCursor(CursorStyle style) {
+        int key = static_cast<int>(style);
+        auto it = m_cursors.find(key);
+        if (it != m_cursors.end()) {
+            return it->second != nullptr;
+        }
+
+        auto cursor = std::make_unique<sf::Cursor>();
+        sf::Cursor::Type sfType;
+
+        switch (style) {
+            case CursorStyle::Arrow: sfType = sf::Cursor::Arrow; break;
+            case CursorStyle::Hand: sfType = sf::Cursor::Hand; break;
+            case CursorStyle::Text: sfType = sf::Cursor::Text; break;
+            case CursorStyle::Cross: sfType = sf::Cursor::Cross; break;
+            case CursorStyle::Wait: sfType = sf::Cursor::Wait; break;
+            case CursorStyle::SizeHorizontal: sfType = sf::Cursor::SizeHorizontal; break;
+            case CursorStyle::SizeVertical: sfType = sf::Cursor::SizeVertical; break;
+            case CursorStyle::SizeTopLeftBottomRight: sfType = sf::Cursor::SizeTopLeftBottomRight; break;
+            case CursorStyle::SizeBottomLeftTopRight: sfType = sf::Cursor::SizeBottomLeftTopRight; break;
+            case CursorStyle::Help: sfType = sf::Cursor::Help; break;
+            case CursorStyle::NotAllowed: sfType = sf::Cursor::NotAllowed; break;
+            default: return false;
+        }
+
+        if (cursor->loadFromSystem(sfType)) {
+            m_cursors[key] = std::move(cursor);
+            return true;
+        }
+
+        m_cursors[key] = nullptr;
+        return false;
+    }
+
     void Window::applySettings() {
         m_window.setVerticalSyncEnabled(m_vsync);
     }
 
 }
+
