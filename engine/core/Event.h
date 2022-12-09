@@ -6,6 +6,9 @@
 #include <memory>
 #include <string>
 #include <any>
+#include <queue>
+#include <mutex>
+#include <algorithm>
 
 namespace nebula {
 
@@ -21,8 +24,11 @@ namespace nebula {
         GamepadAxisMoved,
         TextEntered,
         FileDropped,
+        PhysicsCollision, PhysicsTrigger,
+        UIAction, UIHover, UIClick,
+        NetworkConnected, NetworkDisconnected, NetworkDataReceived,
         AppTick, AppUpdate, AppRender,
-        Custom = 1000
+        UserEvent = 1000
     };
 
     enum class EventCategory {
@@ -32,13 +38,26 @@ namespace nebula {
         Keyboard = 4,
         Mouse = 8,
         Gamepad = 16,
-        Application = 32
+        Application = 32,
+        Physics = 64,
+        UI = 128,
+        Network = 256
+    };
+
+    enum class EventPriority {
+        Lowest = 0,
+        Low = 1,
+        Normal = 2,
+        High = 3,
+        Highest = 4
     };
 
     struct Event {
         EventType type = EventType::None;
         bool handled = false;
         bool propagating = true;
+        EventPriority priority = EventPriority::Normal;
+        bool filtered = false;
 
         virtual ~Event() = default;
 
@@ -52,6 +71,7 @@ namespace nebula {
         }
 
         void stopPropagation() { propagating = false; }
+        void filter() { filtered = true; }
     };
 
     struct WindowResizeEvent : public Event {
@@ -233,11 +253,29 @@ namespace nebula {
         EventCategory getCategory() const override { return EventCategory::Window; }
     };
 
+    struct UserEvent : public Event {
+        int userType;
+        std::any data;
+
+        UserEvent(int t, const std::any& d = {}) : userType(t), data(d) {
+            type = EventType::UserEvent;
+        }
+
+        const char* getName() const override { return "UserEvent"; }
+        EventCategory getCategory() const override { return EventCategory::None; }
+        std::string toString() const override {
+            return "UserEvent: type=" + std::to_string(userType);
+        }
+    };
+
     using EventCallback = std::function<void(Event&)>;
+    using EventFilterCallback = std::function<bool(Event&)>;
+
+    class EventBus;
 
     class EventDispatcher {
     public:
-        void addListener(EventType type, EventCallback callback);
+        void addListener(EventType type, EventCallback callback, EventPriority priority = EventPriority::Normal);
         void removeListener(EventType type);
         void removeListener(EventType type, const EventCallback& callback);
         void clear();
@@ -253,8 +291,58 @@ namespace nebula {
         bool hasListeners(EventType type) const;
         int getListenerCount(EventType type) const;
 
+        void addFilter(EventCategory category, EventFilterCallback filter);
+        void removeFilter(EventCategory category);
+
     private:
-        std::unordered_map<EventType, std::vector<EventCallback>> m_listeners;
+        struct ListenerEntry {
+            EventCallback callback;
+            EventPriority priority;
+        };
+
+        std::unordered_map<EventType, std::vector<ListenerEntry>> m_listeners;
+        std::unordered_map<int, EventFilterCallback> m_filters;
+    };
+
+    class EventQueue {
+    public:
+        void enqueue(EventType type, std::unique_ptr<Event> event);
+        void enqueueBlocking(EventType type, std::unique_ptr<Event> event);
+        std::unique_ptr<Event> dequeue();
+        bool tryDequeue(Event& event);
+        size_t size() const;
+        bool isEmpty() const;
+        void clear();
+        void processAll(EventDispatcher& dispatcher);
+
+    private:
+        struct QueuedEvent {
+            EventType type;
+            std::unique_ptr<Event> event;
+            EventPriority priority;
+            bool operator<(const QueuedEvent& other) const {
+                return static_cast<int>(priority) < static_cast<int>(other.priority);
+            }
+        };
+
+        std::priority_queue<QueuedEvent> m_queue;
+        std::queue<QueuedEvent> m_blockingQueue;
+        mutable std::mutex m_mutex;
+    };
+
+    class EventBus {
+    public:
+        void publish(std::unique_ptr<Event> event);
+        void subscribe(EventType type, EventCallback callback);
+        void unsubscribe(EventType type);
+        void process();
+
+        EventDispatcher& getDispatcher() { return m_dispatcher; }
+
+    private:
+        EventQueue m_queue;
+        EventDispatcher m_dispatcher;
     };
 
 }
+
