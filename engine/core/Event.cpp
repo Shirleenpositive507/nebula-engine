@@ -89,32 +89,34 @@ namespace nebula {
 
     void EventQueue::enqueue(EventType type, std::unique_ptr<Event> event) {
         std::lock_guard<std::mutex> lock(m_mutex);
-        QueuedEntry entry;
+        QueuedEvent entry;
         entry.type = type;
         entry.event = std::move(event);
         entry.priority = entry.event ? entry.event->priority : EventPriority::Normal;
-        m_queue.push(std::move(entry));
+        m_queue.push_back(std::move(entry));
+        std::push_heap(m_queue.begin(), m_queue.end());
     }
 
     void EventQueue::enqueueBlocking(EventType type, std::unique_ptr<Event> event) {
         std::lock_guard<std::mutex> lock(m_mutex);
-        QueuedEntry entry;
+        QueuedEvent entry;
         entry.type = type;
         entry.event = std::move(event);
-        entry.priority = entry.event ? entry.event->priority : EventPriority::Highest;
-        m_blockingQueue.push(std::move(entry));
+        entry.priority = EventPriority::Highest;
+        m_blockingQueue.push_back(std::move(entry));
     }
 
     std::unique_ptr<Event> EventQueue::dequeue() {
         std::lock_guard<std::mutex> lock(m_mutex);
         if (!m_blockingQueue.empty()) {
-            auto entry = std::move(const_cast<QueuedEntry&>(m_blockingQueue.front()));
-            m_blockingQueue.pop();
+            auto entry = std::move(m_blockingQueue.front());
+            m_blockingQueue.erase(m_blockingQueue.begin());
             return std::move(entry.event);
         }
         if (!m_queue.empty()) {
-            auto entry = std::move(const_cast<QueuedEntry&>(m_queue.top()));
-            m_queue.pop();
+            std::pop_heap(m_queue.begin(), m_queue.end());
+            auto entry = std::move(m_queue.back());
+            m_queue.pop_back();
             return std::move(entry.event);
         }
         return nullptr;
@@ -141,8 +143,8 @@ namespace nebula {
 
     void EventQueue::clear() {
         std::lock_guard<std::mutex> lock(m_mutex);
-        while (!m_queue.empty()) m_queue.pop();
-        while (!m_blockingQueue.empty()) m_blockingQueue.pop();
+        m_queue.clear();
+        m_blockingQueue.clear();
     }
 
     void EventQueue::processAll(EventDispatcher& dispatcher) {

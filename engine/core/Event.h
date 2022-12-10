@@ -325,8 +325,8 @@ namespace nebula {
             }
         };
 
-        std::priority_queue<QueuedEvent> m_queue;
-        std::queue<QueuedEvent> m_blockingQueue;
+        std::vector<QueuedEvent> m_queue;
+        std::vector<QueuedEvent> m_blockingQueue;
         mutable std::mutex m_mutex;
     };
 
