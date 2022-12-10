@@ -4,9 +4,14 @@
 
 namespace nebula {
 
-    void EventDispatcher::addListener(EventType type, EventCallback callback) {
-        auto& callbacks = m_listeners[type];
-        callbacks.push_back(std::move(callback));
+    void EventDispatcher::addListener(EventType type, EventCallback callback, EventPriority priority) {
+        m_listeners[type].push_back({std::move(callback), priority});
+
+        auto& entries = m_listeners[type];
+        std::sort(entries.begin(), entries.end(),
+            [](const ListenerEntry& a, const ListenerEntry& b) {
+                return static_cast<int>(a.priority) > static_cast<int>(b.priority);
+            });
     }
 
     void EventDispatcher::removeListener(EventType type) {
@@ -17,24 +22,25 @@ namespace nebula {
         auto it = m_listeners.find(type);
         if (it == m_listeners.end()) return;
 
-        auto& callbacks = it->second;
-        auto& target = const_cast<EventCallback&>(callback);
+        auto& entries = it->second;
+        const auto& target = callback;
 
-        callbacks.erase(
-            std::remove_if(callbacks.begin(), callbacks.end(),
-                [&target](const EventCallback& cb) {
-                    return cb.target_type() == target.target_type();
+        entries.erase(
+            std::remove_if(entries.begin(), entries.end(),
+                [&target](const ListenerEntry& entry) {
+                    return entry.callback.target_type() == target.target_type();
                 }),
-            callbacks.end()
+            entries.end()
         );
 
-        if (callbacks.empty()) {
+        if (entries.empty()) {
             m_listeners.erase(it);
         }
     }
 
     void EventDispatcher::clear() {
         m_listeners.clear();
+        m_filters.clear();
     }
 
     void EventDispatcher::dispatch(Event& event) {
@@ -42,15 +48,23 @@ namespace nebula {
     }
 
     void EventDispatcher::dispatch(EventType type, Event& event) {
+        auto filterIt = m_filters.find(static_cast<int>(event.getCategory()));
+        if (filterIt != m_filters.end()) {
+            if (!filterIt->second(event)) {
+                event.filtered = true;
+                return;
+            }
+        }
+
         auto it = m_listeners.find(type);
         if (it == m_listeners.end()) return;
 
         event.handled = false;
         event.propagating = true;
 
-        for (auto& callback : it->second) {
+        for (auto& entry : it->second) {
             if (!event.propagating) break;
-            callback(event);
+            entry.callback(event);
         }
     }
 
@@ -65,4 +79,96 @@ namespace nebula {
         return static_cast<int>(it->second.size());
     }
 
+    void EventDispatcher::addFilter(EventCategory category, EventFilterCallback filter) {
+        m_filters[static_cast<int>(category)] = std::move(filter);
+    }
+
+    void EventDispatcher::removeFilter(EventCategory category) {
+        m_filters.erase(static_cast<int>(category));
+    }
+
+    void EventQueue::enqueue(EventType type, std::unique_ptr<Event> event) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        QueuedEntry entry;
+        entry.type = type;
+        entry.event = std::move(event);
+        entry.priority = entry.event ? entry.event->priority : EventPriority::Normal;
+        m_queue.push(std::move(entry));
+    }
+
+    void EventQueue::enqueueBlocking(EventType type, std::unique_ptr<Event> event) {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        QueuedEntry entry;
+        entry.type = type;
+        entry.event = std::move(event);
+        entry.priority = entry.event ? entry.event->priority : EventPriority::Highest;
+        m_blockingQueue.push(std::move(entry));
+    }
+
+    std::unique_ptr<Event> EventQueue::dequeue() {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!m_blockingQueue.empty()) {
+            auto entry = std::move(const_cast<QueuedEntry&>(m_blockingQueue.front()));
+            m_blockingQueue.pop();
+            return std::move(entry.event);
+        }
+        if (!m_queue.empty()) {
+            auto entry = std::move(const_cast<QueuedEntry&>(m_queue.top()));
+            m_queue.pop();
+            return std::move(entry.event);
+        }
+        return nullptr;
+    }
+
+    bool EventQueue::tryDequeue(Event& event) {
+        auto ptr = dequeue();
+        if (ptr) {
+            event = std::move(*ptr);
+            return true;
+        }
+        return false;
+    }
+
+    size_t EventQueue::size() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_queue.size() + m_blockingQueue.size();
+    }
+
+    bool EventQueue::isEmpty() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_queue.empty() && m_blockingQueue.empty();
+    }
+
+    void EventQueue::clear() {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        while (!m_queue.empty()) m_queue.pop();
+        while (!m_blockingQueue.empty()) m_blockingQueue.pop();
+    }
+
+    void EventQueue::processAll(EventDispatcher& dispatcher) {
+        while (!isEmpty()) {
+            auto event = dequeue();
+            if (event) {
+                dispatcher.dispatch(*event);
+            }
+        }
+    }
+
+    void EventBus::publish(std::unique_ptr<Event> event) {
+        m_queue.enqueue(event->type, std::move(event));
+    }
+
+    void EventBus::subscribe(EventType type, EventCallback callback) {
+        m_dispatcher.addListener(type, std::move(callback));
+    }
+
+    void EventBus::unsubscribe(EventType type) {
+        m_dispatcher.removeListener(type);
+    }
+
+    void EventBus::process() {
+        m_queue.processAll(m_dispatcher);
+    }
+
 }
+
