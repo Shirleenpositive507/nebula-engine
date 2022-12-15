@@ -7,8 +7,16 @@
 #include <algorithm>
 #include <cctype>
 #include <vector>
+#include <functional>
+#include <chrono>
+#include <ctime>
 
 namespace nebula {
+
+    struct ConfigSection {
+        std::string name;
+        std::unordered_map<std::string, std::string> values;
+    };
 
     class Config {
     public:
@@ -16,6 +24,11 @@ namespace nebula {
 
         bool load(const std::string& path);
         bool save(const std::string& path);
+        bool reload();
+
+        void setWatchChanges(bool watch);
+        bool isWatching() const { return m_watchChanges; }
+        void setChangeCallback(std::function<void()> callback);
 
         template<typename T>
         T get(const std::string& key, const T& defaultValue = T()) const {
@@ -53,11 +66,19 @@ namespace nebula {
         std::vector<std::string> getKeys() const;
         std::vector<std::string> getKeysInSection(const std::string& section) const;
 
+        std::vector<ConfigSection> getSections() const;
+        bool hasSection(const std::string& section) const;
+        void removeSection(const std::string& section);
+
         void setString(const std::string& key, const std::string& value);
         std::string getString(const std::string& key, const std::string& defaultValue = "") const;
         int getInt(const std::string& key, int defaultValue = 0) const;
         float getFloat(const std::string& key, float defaultValue = 0.0f) const;
         bool getBool(const std::string& key, bool defaultValue = false) const;
+
+        std::string getLastError() const { return m_lastError; }
+        bool hasValidationErrors() const { return !m_validationErrors.empty(); }
+        std::vector<std::string> getValidationErrors() const { return m_validationErrors; }
 
     private:
         Config() = default;
@@ -65,8 +86,16 @@ namespace nebula {
         Config& operator=(const Config&) = delete;
 
         std::string trim(const std::string& str) const;
+        std::string loadFile(const std::string& path);
 
         std::unordered_map<std::string, std::string> m_values;
+        std::string m_configPath;
+        std::string m_lastError;
+        std::vector<std::string> m_validationErrors;
+        bool m_watchChanges = false;
+        std::function<void()> m_changeCallback;
+        std::time_t m_lastWriteTime = 0;
     };
 
 }
+
