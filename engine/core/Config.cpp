@@ -2,6 +2,7 @@
 #include "Logger.h"
 #include <iostream>
 #include <regex>
+#include <filesystem>
 
 namespace nebula {
 
@@ -11,18 +12,23 @@ namespace nebula {
     }
 
     bool Config::load(const std::string& path) {
-        std::ifstream file(path);
-        if (!file.is_open()) {
-            NEBULA_WARN("Config file not found: " + path + ", using defaults");
+        m_configPath = path;
+        m_validationErrors.clear();
+        m_lastError.clear();
+
+        std::string content = loadFile(path);
+        if (content.empty()) {
+            NEBULA_WARN("Config file not found or empty: " + path + ", using defaults");
             return false;
         }
 
         m_values.clear();
+        std::istringstream stream(content);
         std::string line;
         std::string currentSection;
         int lineNum = 0;
 
-        while (std::getline(file, line)) {
+        while (std::getline(stream, line)) {
             lineNum++;
             std::string trimmed = trim(line);
 
@@ -52,6 +58,12 @@ namespace nebula {
             m_values[fullKey] = value;
         }
 
+        try {
+            m_lastWriteTime = std::filesystem::last_write_time(path);
+        } catch (...) {
+            m_lastWriteTime = 0;
+        }
+
         NEBULA_INFO("Loaded " + std::to_string(m_values.size()) + " config keys from " + path);
         return true;
     }
@@ -60,6 +72,7 @@ namespace nebula {
         std::ofstream file(path);
         if (!file.is_open()) {
             NEBULA_ERROR("Failed to open config file for writing: " + path);
+            m_lastError = "Cannot open file for writing: " + path;
             return false;
         }
 
@@ -95,6 +108,19 @@ namespace nebula {
         return true;
     }
 
+    bool Config::reload() {
+        if (m_configPath.empty()) return false;
+        return load(m_configPath);
+    }
+
+    void Config::setWatchChanges(bool watch) {
+        m_watchChanges = watch;
+    }
+
+    void Config::setChangeCallback(std::function<void()> callback) {
+        m_changeCallback = std::move(callback);
+    }
+
     bool Config::hasKey(const std::string& key) const {
         return m_values.find(key) != m_values.end();
     }
@@ -127,6 +153,43 @@ namespace nebula {
         return keys;
     }
 
+    std::vector<ConfigSection> Config::getSections() const {
+        std::unordered_map<std::string, ConfigSection> sectionMap;
+        for (const auto& [key, value] : m_values) {
+            size_t dotPos = key.find('.');
+            std::string sectionName = (dotPos != std::string::npos) ? key.substr(0, dotPos) : "";
+            std::string subKey = (dotPos != std::string::npos) ? key.substr(dotPos + 1) : key;
+            sectionMap[sectionName].name = sectionName;
+            sectionMap[sectionName].values[subKey] = value;
+        }
+        std::vector<ConfigSection> result;
+        result.reserve(sectionMap.size());
+        for (auto& [name, section] : sectionMap) {
+            result.push_back(std::move(section));
+        }
+        return result;
+    }
+
+    bool Config::hasSection(const std::string& section) const {
+        std::string prefix = section + ".";
+        for (const auto& [key, _] : m_values) {
+            if (key.find(prefix) == 0) return true;
+        }
+        return m_values.find(section) != m_values.end();
+    }
+
+    void Config::removeSection(const std::string& section) {
+        std::string prefix = section + ".";
+        auto it = m_values.begin();
+        while (it != m_values.end()) {
+            if (it->first.find(prefix) == 0 || it->first == section) {
+                it = m_values.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     void Config::setString(const std::string& key, const std::string& value) {
         m_values[key] = value;
     }
@@ -155,4 +218,14 @@ namespace nebula {
         return str.substr(first, last - first + 1);
     }
 
+    std::string Config::loadFile(const std::string& path) {
+        std::ifstream file(path);
+        if (!file.is_open()) return "";
+
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        return buffer.str();
+    }
+
 }
+
