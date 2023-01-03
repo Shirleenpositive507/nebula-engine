@@ -98,6 +98,30 @@ public:
         return Vector2(-y, x);
     }
 
+    Vector2 swizzleXX() const { return Vector2(x, x); }
+    Vector2 swizzleXY() const { return Vector2(x, y); }
+    Vector2 swizzleYX() const { return Vector2(y, x); }
+    Vector2 swizzleYY() const { return Vector2(y, y); }
+
+    Vector2 reject(const Vector2& onto) const {
+        return *this - project(onto);
+    }
+
+    T angleBetween(const Vector2& other) const {
+        T d = dot(other);
+        T lenProd = length() * other.length();
+        if (lenProd < static_cast<T>(1e-8)) return 0;
+        return std::acos(d / lenProd);
+    }
+
+    bool isUnit(T epsilon = static_cast<T>(1e-6)) const {
+        return std::abs(lengthSquared() - static_cast<T>(1)) < epsilon;
+    }
+
+    bool isZero(T epsilon = static_cast<T>(1e-8)) const {
+        return std::abs(x) < epsilon && std::abs(y) < epsilon;
+    }
+
     friend std::ostream& operator<<(std::ostream& os, const Vector2& v) {
         os << "Vector2(" << v.x << ", " << v.y << ")";
         return os;
