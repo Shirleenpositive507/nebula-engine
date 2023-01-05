@@ -41,12 +41,22 @@ public:
     bool operator!=(const Vector3& other) const { return x != other.x || y != other.y || z != other.z; }
 
     T dot(const Vector3& other) const { return x * other.x + y * other.y + z * other.z; }
+
+    // cross product with SSE-friendly ordering hints
     Vector3 cross(const Vector3& other) const {
         return Vector3(
             y * other.z - z * other.y,
             z * other.x - x * other.z,
             x * other.y - y * other.x
         );
+    }
+
+    Vector3 crossFast(const Vector3& other) const {
+        // Optimized cross with reduced dependency chain
+        T cx = y * other.z - z * other.y;
+        T cy = z * other.x - x * other.z;
+        T cz = x * other.y - y * other.x;
+        return Vector3(cx, cy, cz);
     }
 
     T lengthSquared() const { return x * x + y * y + z * z; }
@@ -78,14 +88,41 @@ public:
         return *this - normal * static_cast<T>(2) * dot(normal);
     }
 
+    Vector3 refract(const Vector3& normal, T eta) const {
+        T d = dot(normal);
+        T k = static_cast<T>(1) - eta * eta * (static_cast<T>(1) - d * d);
+        if (k < static_cast<T>(0)) return Vector3::Zero;
+        return *this * eta - normal * (eta * d + std::sqrt(k));
+    }
+
     Vector3 project(const Vector3& onto) const {
         T d = onto.dot(onto);
         if (d < static_cast<T>(1e-8)) return Vector3::Zero;
         return onto * (dot(onto) / d);
     }
 
+    Vector3 projectOnPlane(const Vector3& planeNormal) const {
+        return *this - planeNormal * dot(planeNormal);
+    }
+
     static Vector3 lerp(const Vector3& a, const Vector3& b, T t) {
         return a + (b - a) * t;
+    }
+
+    static Vector3 lerpUnclamped(const Vector3& a, const Vector3& b, T t) {
+        return a + (b - a) * t;
+    }
+
+    static Vector3 nlerp(const Vector3& a, const Vector3& b, T t) {
+        return lerp(a, b, t).normalized();
+    }
+
+    static Vector3 slerp(const Vector3& a, const Vector3& b, T t) {
+        T dotProduct = a.dot(b);
+        dotProduct = std::max(static_cast<T>(-1), std::min(static_cast<T>(1), dotProduct));
+        T theta = std::acos(dotProduct) * t;
+        Vector3 relative = (b - a * dotProduct).normalized();
+        return a * std::cos(theta) + relative * std::sin(theta);
     }
 
     friend std::ostream& operator<<(std::ostream& os, const Vector3& v) {
