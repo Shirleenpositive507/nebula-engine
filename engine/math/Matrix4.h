@@ -5,8 +5,27 @@
 #include "core/Types.h"
 #include "Vector3.h"
 #include "Vector4.h"
+#include "Matrix3.h"
 
 namespace nebula {
+
+template<typename T>
+struct Plane {
+    Vector3<T> normal;
+    T distance;
+
+    Plane() : normal(), distance(0) {}
+    Plane(const Vector3<T>& n, T d) : normal(n), distance(d) {}
+};
+
+template<typename T>
+struct TRSDecomposition {
+    Vector3<T> position;
+    Vector3<T> scale;
+    Vector3<T> eulerAngles;
+    // Rotation matrix extracted
+    Matrix3<T> rotationMatrix;
+};
 
 template<typename T>
 class Matrix4 {
@@ -309,6 +328,149 @@ public:
             std::sqrt(data[4] * data[4] + data[5] * data[5] + data[6] * data[6]),
             std::sqrt(data[8] * data[8] + data[9] * data[9] + data[10] * data[10])
         );
+    }
+
+    // Frustum plane extraction from combined projection*view matrix
+    // Returns 6 planes: left, right, bottom, top, near, far
+    void extractPlanes(Plane<T> planes[6]) const {
+        // Left
+        planes[0].normal = Vector3<T>(
+            data[3] + data[0],
+            data[7] + data[4],
+            data[11] + data[8]
+        );
+        T len0 = planes[0].normal.length();
+        planes[0].distance = (data[15] + data[12]) / len0;
+        planes[0].normal /= len0;
+
+        // Right
+        planes[1].normal = Vector3<T>(
+            data[3] - data[0],
+            data[7] - data[4],
+            data[11] - data[8]
+        );
+        T len1 = planes[1].normal.length();
+        planes[1].distance = (data[15] - data[12]) / len1;
+        planes[1].normal /= len1;
+
+        // Bottom
+        planes[2].normal = Vector3<T>(
+            data[3] + data[1],
+            data[7] + data[5],
+            data[11] + data[9]
+        );
+        T len2 = planes[2].normal.length();
+        planes[2].distance = (data[15] + data[13]) / len2;
+        planes[2].normal /= len2;
+
+        // Top
+        planes[3].normal = Vector3<T>(
+            data[3] - data[1],
+            data[7] - data[5],
+            data[11] - data[9]
+        );
+        T len3 = planes[3].normal.length();
+        planes[3].distance = (data[15] - data[13]) / len3;
+        planes[3].normal /= len3;
+
+        // Near
+        planes[4].normal = Vector3<T>(
+            data[3] + data[2],
+            data[7] + data[6],
+            data[11] + data[10]
+        );
+        T len4 = planes[4].normal.length();
+        planes[4].distance = (data[15] + data[14]) / len4;
+        planes[4].normal /= len4;
+
+        // Far
+        planes[5].normal = Vector3<T>(
+            data[3] - data[2],
+            data[7] - data[6],
+            data[11] - data[10]
+        );
+        T len5 = planes[5].normal.length();
+        planes[5].distance = (data[15] - data[14]) / len5;
+        planes[5].normal /= len5;
+    }
+
+    // Decompose into position, scale, and rotation
+    TRSDecomposition<T> decompose() const {
+        TRSDecomposition<T> result;
+        result.position = Vector3<T>(data[3], data[7], data[11]);
+
+        Vector3<T> scale;
+        scale.x = std::sqrt(data[0] * data[0] + data[1] * data[1] + data[2] * data[2]);
+        scale.y = std::sqrt(data[4] * data[4] + data[5] * data[5] + data[6] * data[6]);
+        scale.z = std::sqrt(data[8] * data[8] + data[9] * data[9] + data[10] * data[10]);
+        result.scale = scale;
+
+        T invSx = static_cast<T>(1) / scale.x;
+        T invSy = static_cast<T>(1) / scale.y;
+        T invSz = static_cast<T>(1) / scale.z;
+
+        result.rotationMatrix = Matrix3<T>(
+            data[0] * invSx, data[1] * invSx, data[2] * invSx,
+            data[4] * invSy, data[5] * invSy, data[6] * invSy,
+            data[8] * invSz, data[9] * invSz, data[10] * invSz
+        );
+
+        // Extract euler angles from rotation matrix (XYZ order)
+        const Matrix3<T>& r = result.rotationMatrix;
+        T sy = std::sqrt(r(0,0) * r(0,0) + r(1,0) * r(1,0));
+        bool singular = sy < static_cast<T>(1e-6);
+        if (!singular) {
+            result.eulerAngles.x = std::atan2(r(2,1), r(2,2));
+            result.eulerAngles.y = std::atan2(-r(2,0), sy);
+            result.eulerAngles.z = std::atan2(r(1,0), r(0,0));
+        } else {
+            result.eulerAngles.x = std::atan2(-r(1,2), r(1,1));
+            result.eulerAngles.y = std::atan2(-r(2,0), sy);
+            result.eulerAngles.z = 0;
+        }
+
+        return result;
+    }
+
+    // Interpolation
+    static Matrix4 lerp(const Matrix4& a, const Matrix4& b, T t) {
+        Matrix4 result;
+        for (int i = 0; i < 16; ++i) {
+            result.data[i] = a.data[i] + (b.data[i] - a.data[i]) * t;
+        }
+        return result;
+    }
+
+    // Slerp for rotation component, lerp for position/scale
+    static Matrix4 slerp(const Matrix4& a, const Matrix4& b, T t) {
+        TRSDecomposition<T> da = a.decompose();
+        TRSDecomposition<T> db = b.decompose();
+
+        Vector3<T> pos = Vector3<T>::lerp(da.position, db.position, t);
+        Vector3<T> scl = Vector3<T>::lerp(da.scale, db.scale, t);
+
+        // Simple nlerp-based rotation interpolation via matrix blending
+        Matrix4 result = translation(pos.x, pos.y, pos.z);
+        Matrix4 rotA = a;
+        Matrix4 rotB = b;
+        // Remove translation components
+        rotA(0,3) = rotA(1,3) = rotA(2,3) = 0;
+        rotB(0,3) = rotB(1,3) = rotB(2,3) = 0;
+        // Normalize scale
+        Vector3<T> scaleA = a.getScale();
+        Vector3<T> scaleB = b.getScale();
+        T sa = scaleA.x > 0 ? scaleA.x : 1;
+        T sb = scaleB.x > 0 ? scaleB.x : 1;
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                result(i,j) = (rotA(i,j) / sa) * (1-t) + (rotB(i,j) / sb) * t;
+            }
+        }
+        result(0,0) *= scl.x; result(1,0) *= scl.x; result(2,0) *= scl.x;
+        result(0,1) *= scl.y; result(1,1) *= scl.y; result(2,1) *= scl.y;
+        result(0,2) *= scl.z; result(1,2) *= scl.z; result(2,2) *= scl.z;
+
+        return result;
     }
 
     friend std::ostream& operator<<(std::ostream& os, const Matrix4& m) {
