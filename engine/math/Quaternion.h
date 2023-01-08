@@ -1,6 +1,5 @@
 #pragma once
 #include <cmath>
-#include <algorithm>
 #include <iostream>
 #include "core/Types.h"
 #include "Vector3.h"
@@ -16,6 +15,77 @@ public:
 
     Quaternion() : w(1), x(0), y(0), z(0) {}
     Quaternion(T w, T x, T y, T z) : w(w), x(x), y(y), z(z) {}
+
+    static Quaternion lookRotation(const Vector3<T>& forward, const Vector3<T>& up = Vector3<T>::Up) {
+        Vector3<T> f = forward.normalized();
+        Vector3<T> u = up.normalized();
+        Vector3<T> r = u.cross(f).normalized();
+        u = f.cross(r);
+
+        Matrix3<T> rot(
+            r.x, u.x, f.x,
+            r.y, u.y, f.y,
+            r.z, u.z, f.z
+        );
+        return fromRotationMatrix(rot);
+    }
+
+    static Quaternion fromToRotation(const Vector3<T>& from, const Vector3<T>& to) {
+        Vector3<T> f = from.normalized();
+        Vector3<T> t = to.normalized();
+        T dot = f.dot(t);
+
+        if (dot > static_cast<T>(0.99999)) {
+            return Quaternion::Identity;
+        }
+        if (dot < static_cast<T>(-0.99999)) {
+            Vector3<T> axis = Vector3<T>::Right.cross(f);
+            if (axis.lengthSquared() < static_cast<T>(1e-6)) {
+                axis = Vector3<T>::Up.cross(f);
+            }
+            axis.normalize();
+            return Quaternion(0, axis.x, axis.y, axis.z);
+        }
+
+        Vector3<T> axis2 = f.cross(t);
+        T w = std::sqrt(f.lengthSquared() * t.lengthSquared()) + dot;
+        return Quaternion(w, axis2.x, axis2.y, axis2.z).normalized();
+    }
+
+    Vector3<T> getAxis() const {
+        T s = static_cast<T>(1) - w * w;
+        if (s < static_cast<T>(1e-8)) return Vector3<T>::Forward;
+        T invS = static_cast<T>(1) / std::sqrt(s);
+        return Vector3<T>(x * invS, y * invS, z * invS);
+    }
+
+    T getAngle() const {
+        T cw = w < static_cast<T>(-1) ? static_cast<T>(-1) : (w > static_cast<T>(1) ? static_cast<T>(1) : w);
+        return static_cast<T>(2) * std::acos(cw);
+    }
+
+    Quaternion exponential() const {
+        T halfAngle = std::sqrt(x * x + y * y + z * z);
+        if (halfAngle < static_cast<T>(1e-8)) return Quaternion::Identity;
+        T sinHalf = std::sin(halfAngle);
+        T factor = sinHalf / halfAngle;
+        return Quaternion(std::cos(halfAngle), x * factor, y * factor, z * factor);
+    }
+
+    Quaternion logarithmic() const {
+        T cw = w < static_cast<T>(-1) ? static_cast<T>(-1) : (w > static_cast<T>(1) ? static_cast<T>(1) : w);
+        T angle = std::acos(cw);
+        T sinAngle = std::sin(angle);
+        if (sinAngle < static_cast<T>(1e-8)) return Quaternion(0, 0, 0, 0);
+        T factor = angle / sinAngle;
+        return Quaternion(0, x * factor, y * factor, z * factor);
+    }
+
+    T angularDistance(const Quaternion& other) const {
+        T d = w * other.w + x * other.x + y * other.y + z * other.z;
+        d = d < static_cast<T>(-1) ? static_cast<T>(-1) : (d > static_cast<T>(1) ? static_cast<T>(1) : d);
+        return std::acos(d) * static_cast<T>(2);
+    }
 
     static Quaternion fromAngleAxis(T angleRad, const Vector3<T>& axis) {
         Vector3<T> a = axis.normalized();
@@ -213,7 +283,9 @@ public:
 
     T angle(const Quaternion& other) const {
         T d = w * other.w + x * other.x + y * other.y + z * other.z;
-        return std::acos(std::clamp(d * d * static_cast<T>(2) - static_cast<T>(1), static_cast<T>(-1), static_cast<T>(1)));
+        T v = d * d * static_cast<T>(2) - static_cast<T>(1);
+        v = v < static_cast<T>(-1) ? static_cast<T>(-1) : (v > static_cast<T>(1) ? static_cast<T>(1) : v);
+        return std::acos(v);
     }
 
     Quaternion operator-() const { return Quaternion(-w, -x, -y, -z); }
