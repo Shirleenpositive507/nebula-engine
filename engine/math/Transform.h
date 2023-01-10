@@ -126,13 +126,15 @@ public:
         return Matrix4f::TRS(position, getEulerAngles(), scale);
     }
 
-    Matrix4f getMatrix() const { return getLocalMatrix(); }
+    Matrix4f getMatrix() const {
+        Matrix4f t = Matrix4f::translation(position.x, position.y, position.z);
+        Matrix4f r = rotation.toMatrix4();
+        Matrix4f s = Matrix4f::scaling(scale.x, scale.y, scale.z);
+        return t * r * s;
+    }
 
-    void setFromMatrix(const Matrix4f& matrix) {
-        position = matrix.getTranslation();
-        scale = matrix.getScale();
-        Matrix3f rotMat = matrix.getRotationMatrix();
-        rotation = Quaternionf::fromRotationMatrix(rotMat);
+    Matrix4f getInverseMatrix() const {
+        return getMatrix().inverse();
     }
 
     Vector3f getForward() const {
@@ -145,6 +147,13 @@ public:
 
     Vector3f getUp() const {
         return rotation.rotateVector(Vector3f(0.0f, 1.0f, 0.0f));
+    }
+
+    void setFromMatrix(const Matrix4f& matrix) {
+        position = matrix.getTranslation();
+        scale = matrix.getScale();
+        Matrix3f rotMat = matrix.getRotationMatrix();
+        rotation = Quaternionf::fromRotationMatrix(rotMat);
     }
 
     void lookAt(const Vector3f& target, const Vector3f& up = Vector3f::Up) {
