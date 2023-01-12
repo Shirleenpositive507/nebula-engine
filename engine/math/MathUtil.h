@@ -192,6 +192,75 @@ namespace Math {
         return clamp(value, static_cast<T>(0), static_cast<T>(1));
     }
 
+    template<typename T>
+    T gaussian(T x, T mean = static_cast<T>(0), T sigma = static_cast<T>(1)) {
+        T diff = x - mean;
+        return std::exp(-(diff * diff) / (static_cast<T>(2) * sigma * sigma));
+    }
+
+    template<typename T>
+    T sigmoid(T x, T gain = static_cast<T>(1)) {
+        return static_cast<T>(1) / (static_cast<T>(1) + std::exp(-x * gain));
+    }
+
+    template<typename T>
+    T bezier(T p0, T p1, T p2, T p3, T t) {
+        T u = static_cast<T>(1) - t;
+        T uu = u * u;
+        T uuu = uu * u;
+        T tt = t * t;
+        T ttt = tt * t;
+        return uuu * p0 + static_cast<T>(3) * uu * t * p1 + static_cast<T>(3) * u * tt * p2 + ttt * p3;
+    }
+
+    template<typename T>
+    T catmullRom(T p0, T p1, T p2, T p3, T t) {
+        T tt = t * t;
+        T ttt = tt * t;
+        return static_cast<T>(0.5) * (
+            (static_cast<T>(2) * p1) +
+            (-p0 + p2) * t +
+            (static_cast<T>(2) * p0 - static_cast<T>(5) * p1 + static_cast<T>(4) * p2 - p3) * tt +
+            (-p0 + static_cast<T>(3) * p1 - static_cast<T>(3) * p2 + p3) * ttt
+        );
+    }
+
+    template<typename T>
+    T damp(T current, T target, T smoothTime, T deltaTime, T& velocity) {
+        T omega = static_cast<T>(2) / smoothTime;
+        T x = omega * deltaTime;
+        T exp = static_cast<T>(1) / (static_cast<T>(1) + x + static_cast<T>(0.48) * x * x + static_cast<T>(0.235) * x * x * x);
+        T change = current - target;
+        T temp = (velocity + omega * change) * deltaTime;
+        velocity = (velocity - omega * temp) * exp;
+        return target + (change + temp) * exp;
+    }
+
+    template<typename T>
+    T smoothDamp(T current, T target, T& currentVelocity, T smoothTime, T maxSpeed, T deltaTime) {
+        T omega = static_cast<T>(2) / smoothTime;
+        T x = omega * deltaTime;
+        T exp = static_cast<T>(1) / (static_cast<T>(1) + x + static_cast<T>(0.48) * x * x + static_cast<T>(0.235) * x * x * x);
+        T change = current - target;
+        T maxChange = maxSpeed * smoothTime;
+        change = clamp(change, -maxChange, maxChange);
+        T targetTo = target;
+        T temp = (currentVelocity + omega * change) * deltaTime;
+        currentVelocity = (currentVelocity - omega * temp) * exp;
+        return targetTo + (change + temp) * exp;
+    }
+
+    template<typename T>
+    T repeat(T t, T length) {
+        return t - std::floor(t / length) * length;
+    }
+
+    template<typename T>
+    T pingPong(T t, T length) {
+        t = repeat(t, length * static_cast<T>(2));
+        return length - std::abs(t - length);
+    }
+
 } // namespace Math
 
 } // namespace nebula
