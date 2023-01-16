@@ -216,6 +216,87 @@ namespace nebula {
             return m_window && m_window->getVerticalSyncEnabled();
         }
 
+        void Renderer::setBatchMode(BatchMode mode) {
+            m_batchMode = mode;
+        }
+
+        BatchMode Renderer::getBatchMode() const {
+            return m_batchMode;
+        }
+
+        void Renderer::beginRenderPass(RenderPass pass) {
+            m_currentPass = pass;
+            m_stats.stateChanges++;
+            if (m_passCallbacks[static_cast<int>(pass)]) {
+                m_passCallbacks[static_cast<int>(pass)]();
+            }
+        }
+
+        void Renderer::endRenderPass(RenderPass pass) {
+            m_passStats[static_cast<int>(pass)].drawCalls = m_stats.drawCalls;
+            m_passStats[static_cast<int>(pass)].vertices = m_stats.vertices;
+            m_currentPass = RenderPass::Opaque;
+        }
+
+        RenderPass Renderer::getCurrentRenderPass() const {
+            return m_currentPass;
+        }
+
+        void Renderer::pushRenderState(const ScopedRenderState& state) {
+            m_stateStack.push(state);
+            m_stats.stateChanges++;
+            if (m_activeTarget) {
+                m_activeTarget->setView(state.view);
+            }
+            m_blendState = state.blend;
+            m_currentPass = state.pass;
+        }
+
+        void Renderer::popRenderState() {
+            if (!m_stateStack.empty()) {
+                m_stateStack.pop();
+                m_stats.stateChanges++;
+                if (!m_stateStack.empty()) {
+                    const auto& top = m_stateStack.top();
+                    if (m_activeTarget) {
+                        m_activeTarget->setView(top.view);
+                    }
+                    m_blendState = top.blend;
+                    m_currentPass = top.pass;
+                }
+            }
+        }
+
+        std::size_t Renderer::getRenderStateStackSize() const {
+            return m_stateStack.size();
+        }
+
+        void Renderer::setPassCallback(RenderPass pass, std::function<void()> callback) {
+            m_passCallbacks[static_cast<int>(pass)] = callback;
+        }
+
+        void Renderer::clearPassCallbacks() {
+            for (int i = 0; i < static_cast<int>(RenderPass::Count); ++i) {
+                m_passCallbacks[i] = nullptr;
+            }
+        }
+
+        RenderPassStats Renderer::getPassStats(RenderPass pass) const {
+            return m_passStats[static_cast<int>(pass)];
+        }
+
+        std::size_t Renderer::getStateChanges() const {
+            return m_stats.stateChanges;
+        }
+
+        void Renderer::setBatchFlushCallback(std::function<void()> callback) {
+            m_batchFlushCallback = callback;
+        }
+
+        bool Renderer::isBatchRendering() const {
+            return m_batchMode == BatchMode::Batched;
+        }
+
         void Renderer::applyState() {
         }
 
