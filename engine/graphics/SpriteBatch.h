@@ -11,9 +11,18 @@
 #include <vector>
 #include <unordered_map>
 #include <cstddef>
+#include <functional>
+#include <algorithm>
 
 namespace nebula {
     namespace graphics {
+
+        enum class SpriteSortMode {
+            None,
+            FrontToBack,
+            BackToFront,
+            Texture
+        };
 
         struct SpriteBatchItem {
             const sf::Texture* texture;
@@ -23,10 +32,15 @@ namespace nebula {
 
         class SpriteBatch {
         public:
-            static constexpr std::size_t MAX_BATCH_SIZE = 4096;
+            using SortComparator = std::function<bool(const SpriteBatchItem&, const SpriteBatchItem&)>;
+            using FlushCallback = std::function<void()>;
+
+            static constexpr std::size_t DEFAULT_MAX_BATCH = 4096;
 
             SpriteBatch();
             explicit SpriteBatch(sf::RenderTarget& target);
+            explicit SpriteBatch(std::size_t maxVertices);
+            SpriteBatch(sf::RenderTarget& target, std::size_t maxVertices);
             ~SpriteBatch();
 
             void setTarget(sf::RenderTarget& target);
@@ -34,6 +48,10 @@ namespace nebula {
 
             void begin(BlendMode blendMode = BlendMode::Alpha);
             void begin(const BlendState& blendState);
+
+            void begin(SpriteSortMode sortMode);
+            void begin(SpriteSortMode sortMode, const BlendState& blendState);
+            void begin(SpriteSortMode sortMode, const BlendState& blendState, const SortComparator& customComparator);
 
             void draw(const sf::Sprite& sprite);
             void draw(const sf::Texture& texture, const sf::Vector2f& position,
@@ -61,6 +79,18 @@ namespace nebula {
             void setTextureSorting(bool enabled);
             bool isTextureSortingEnabled() const;
 
+            void setSortMode(SpriteSortMode mode);
+            SpriteSortMode getSortMode() const;
+
+            void setMaxVertices(std::size_t maxVertices);
+            std::size_t getMaxVertices() const;
+
+            void setFlushCallback(FlushCallback callback);
+            FlushCallback getFlushCallback() const;
+
+            void setCustomComparator(const SortComparator& comparator);
+            SortComparator getCustomComparator() const;
+
             std::size_t getBatchCount() const;
             std::size_t getVertexCount() const;
             void resetStats();
@@ -76,6 +106,10 @@ namespace nebula {
             bool m_textureSorting;
             sf::PrimitiveType m_primitiveType;
             BlendState m_blendState;
+            SpriteSortMode m_sortMode;
+            std::size_t m_maxVertices;
+            FlushCallback m_flushCallback;
+            SortComparator m_customComparator;
 
             std::vector<SpriteBatchItem> m_items;
 
