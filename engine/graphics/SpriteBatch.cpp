@@ -12,7 +12,9 @@ namespace nebula {
             , m_batchCount(0)
             , m_totalVertices(0)
             , m_textureSorting(true)
-            , m_primitiveType(sf::PrimitiveType::Triangles) {}
+            , m_primitiveType(sf::PrimitiveType::Triangles)
+            , m_sortMode(SpriteSortMode::Texture)
+            , m_maxVertices(DEFAULT_MAX_BATCH) {}
 
         SpriteBatch::SpriteBatch(sf::RenderTarget& target)
             : m_target(&target)
@@ -20,7 +22,29 @@ namespace nebula {
             , m_batchCount(0)
             , m_totalVertices(0)
             , m_textureSorting(true)
-            , m_primitiveType(sf::PrimitiveType::Triangles) {}
+            , m_primitiveType(sf::PrimitiveType::Triangles)
+            , m_sortMode(SpriteSortMode::Texture)
+            , m_maxVertices(DEFAULT_MAX_BATCH) {}
+
+        SpriteBatch::SpriteBatch(std::size_t maxVertices)
+            : m_target(nullptr)
+            , m_began(false)
+            , m_batchCount(0)
+            , m_totalVertices(0)
+            , m_textureSorting(true)
+            , m_primitiveType(sf::PrimitiveType::Triangles)
+            , m_sortMode(SpriteSortMode::Texture)
+            , m_maxVertices(maxVertices) {}
+
+        SpriteBatch::SpriteBatch(sf::RenderTarget& target, std::size_t maxVertices)
+            : m_target(&target)
+            , m_began(false)
+            , m_batchCount(0)
+            , m_totalVertices(0)
+            , m_textureSorting(true)
+            , m_primitiveType(sf::PrimitiveType::Triangles)
+            , m_sortMode(SpriteSortMode::Texture)
+            , m_maxVertices(maxVertices) {}
 
         SpriteBatch::~SpriteBatch() {
             if (m_began) {
@@ -37,23 +61,37 @@ namespace nebula {
         }
 
         void SpriteBatch::begin(BlendMode blendMode) {
-            begin(BlendState(blendMode));
+            begin(SpriteSortMode::Texture, BlendState(blendMode));
         }
 
         void SpriteBatch::begin(const BlendState& blendState) {
+            begin(SpriteSortMode::Texture, blendState);
+        }
+
+        void SpriteBatch::begin(SpriteSortMode sortMode) {
+            begin(sortMode, BlendState(BlendMode::Alpha));
+        }
+
+        void SpriteBatch::begin(SpriteSortMode sortMode, const BlendState& blendState) {
             if (m_began) return;
 
+            m_sortMode = sortMode;
             m_began = true;
             m_batchCount = 0;
             m_totalVertices = 0;
             m_blendState = blendState;
             m_items.clear();
-            m_items.reserve(MAX_BATCH_SIZE);
+            m_items.reserve(m_maxVertices);
+        }
+
+        void SpriteBatch::begin(SpriteSortMode sortMode, const BlendState& blendState, const SortComparator& customComparator) {
+            m_customComparator = customComparator;
+            begin(sortMode, blendState);
         }
 
         void SpriteBatch::draw(const sf::Sprite& sprite) {
-            if (!m_began || m_items.size() >= MAX_BATCH_SIZE) {
-                if (m_items.size() >= MAX_BATCH_SIZE) flush();
+            if (!m_began || m_items.size() >= m_maxVertices) {
+                if (m_items.size() >= m_maxVertices) flush();
                 else return;
             }
 
@@ -69,8 +107,8 @@ namespace nebula {
                                const Color& color, float rotation,
                                const sf::Vector2f& scale, const sf::Vector2f& origin)
         {
-            if (!m_began || m_items.size() >= MAX_BATCH_SIZE) {
-                if (m_items.size() >= MAX_BATCH_SIZE) flush();
+            if (!m_began || m_items.size() >= m_maxVertices) {
+                if (m_items.size() >= m_maxVertices) flush();
                 else return;
             }
 
@@ -85,8 +123,8 @@ namespace nebula {
         void SpriteBatch::draw(const sf::Texture& texture, const sf::IntRect& sourceRect,
                                const sf::FloatRect& destRect, const Color& color)
         {
-            if (!m_began || m_items.size() >= MAX_BATCH_SIZE) {
-                if (m_items.size() >= MAX_BATCH_SIZE) flush();
+            if (!m_began || m_items.size() >= m_maxVertices) {
+                if (m_items.size() >= m_maxVertices) flush();
                 else return;
             }
 
@@ -103,8 +141,8 @@ namespace nebula {
                                float rotation, const sf::Vector2f& scale,
                                const sf::Vector2f& origin)
         {
-            if (!m_began || m_items.size() >= MAX_BATCH_SIZE) {
-                if (m_items.size() >= MAX_BATCH_SIZE) flush();
+            if (!m_began || m_items.size() >= m_maxVertices) {
+                if (m_items.size() >= m_maxVertices) flush();
                 else return;
             }
 
@@ -143,7 +181,7 @@ namespace nebula {
             }
 
             std::size_t itemCount = (type == sf::PrimitiveType::Quads) ? count / 4 : count / vertsPerPrim;
-            for (std::size_t i = 0; i < itemCount && m_items.size() < MAX_BATCH_SIZE; ++i) {
+            for (std::size_t i = 0; i < itemCount && m_items.size() < m_maxVertices; ++i) {
                 SpriteBatchItem vi;
                 vi.texture = texture;
                 vi.sortKey = texture ? reinterpret_cast<std::uintptr_t>(texture) : 0;
@@ -160,15 +198,38 @@ namespace nebula {
         void SpriteBatch::flush() {
             if (!m_began || m_items.empty()) return;
 
-            if (m_textureSorting && m_items.size() > 1) {
-                std::stable_sort(m_items.begin(), m_items.end(),
-                    [](const SpriteBatchItem& a, const SpriteBatchItem& b) {
-                        return a.sortKey < b.sortKey;
-                    });
+            if (m_items.size() > 1) {
+                if (m_customComparator) {
+                    std::stable_sort(m_items.begin(), m_items.end(), m_customComparator);
+                } else {
+                    switch (m_sortMode) {
+                        case SpriteSortMode::FrontToBack:
+                            std::stable_sort(m_items.begin(), m_items.end(),
+                                [](const SpriteBatchItem& a, const SpriteBatchItem& b) {
+                                    return a.sortKey < b.sortKey;
+                                });
+                            break;
+                        case SpriteSortMode::BackToFront:
+                            std::stable_sort(m_items.begin(), m_items.end(),
+                                [](const SpriteBatchItem& a, const SpriteBatchItem& b) {
+                                    return a.sortKey > b.sortKey;
+                                });
+                            break;
+                        case SpriteSortMode::Texture:
+                            std::stable_sort(m_items.begin(), m_items.end(),
+                                [](const SpriteBatchItem& a, const SpriteBatchItem& b) {
+                                    return a.texture < b.texture;
+                                });
+                            break;
+                        case SpriteSortMode::None:
+                        default:
+                            break;
+                    }
+                }
             }
 
             std::vector<SpriteBatchItem> currentBatch;
-            currentBatch.reserve(MAX_BATCH_SIZE);
+            currentBatch.reserve(m_maxVertices);
 
             const sf::Texture* currentTexture = nullptr;
 
@@ -223,6 +284,38 @@ namespace nebula {
             return m_primitiveType;
         }
 
+        void SpriteBatch::setSortMode(SpriteSortMode mode) {
+            m_sortMode = mode;
+        }
+
+        SpriteSortMode SpriteBatch::getSortMode() const {
+            return m_sortMode;
+        }
+
+        void SpriteBatch::setMaxVertices(std::size_t maxVertices) {
+            m_maxVertices = maxVertices;
+        }
+
+        std::size_t SpriteBatch::getMaxVertices() const {
+            return m_maxVertices;
+        }
+
+        void SpriteBatch::setFlushCallback(FlushCallback callback) {
+            m_flushCallback = callback;
+        }
+
+        SpriteBatch::FlushCallback SpriteBatch::getFlushCallback() const {
+            return m_flushCallback;
+        }
+
+        void SpriteBatch::setCustomComparator(const SortComparator& comparator) {
+            m_customComparator = comparator;
+        }
+
+        SpriteBatch::SortComparator SpriteBatch::getCustomComparator() const {
+            return m_customComparator;
+        }
+
         void SpriteBatch::flushBatch(const std::vector<SpriteBatchItem>& batch) {
             if (batch.empty() || !m_target) return;
 
@@ -246,6 +339,10 @@ namespace nebula {
             m_target->draw(vertexArray, states);
             ++m_batchCount;
             m_totalVertices += totalVerts;
+
+            if (m_flushCallback) {
+                m_flushCallback();
+            }
         }
 
         void SpriteBatch::generateVertexFromSprite(const sf::Sprite& sprite, sf::Vertex* outVertices) {
