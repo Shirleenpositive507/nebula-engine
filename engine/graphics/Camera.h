@@ -6,6 +6,7 @@
 #include <SFML/Graphics/View.hpp>
 #include "Viewport.h"
 #include <functional>
+#include <array>
 
 namespace nebula {
     namespace graphics {
@@ -13,6 +14,28 @@ namespace nebula {
         enum class ProjectionMode {
             Orthographic,
             Perspective
+        };
+
+        enum class RenderOrder {
+            Default,
+            BackToFront,
+            FrontToBack,
+            Custom
+        };
+
+        struct FrustumPlane {
+            sf::Vector2f normal;
+            float distance;
+
+            FrustumPlane() : normal(0.f, 0.f), distance(0.f) {}
+            FrustumPlane(const sf::Vector2f& n, float d) : normal(n), distance(d) {}
+        };
+
+        struct Frustum {
+            std::array<FrustumPlane, 4> planes; // left, right, bottom, top
+
+            bool isVisible(const sf::FloatRect& aabb) const;
+            bool isVisible(const sf::Vector2f& center, float radius) const;
         };
 
         struct ScreenShakeConfig {
@@ -94,6 +117,24 @@ namespace nebula {
             sf::View getSFMLView() const;
             void applyTo(sf::RenderTarget& target) const;
 
+            Frustum getFrustum() const;
+            bool isVisible(const sf::FloatRect& aabb) const;
+            bool isVisible(const sf::Vector2f& center, float radius) const;
+
+            void setOrthographicSize(float size);
+            float getOrthographicSize() const;
+
+            void setAspectRatioLock(bool lock);
+            bool isAspectRatioLocked() const;
+            void setAspectRatio(float ratio);
+            float getAspectRatio() const;
+
+            void setPixelPerfect(bool enabled);
+            bool isPixelPerfect() const;
+
+            void setRenderOrder(RenderOrder order);
+            RenderOrder getRenderOrder() const;
+
             Viewport& getViewport();
             const Viewport& getViewport() const;
 
@@ -104,6 +145,12 @@ namespace nebula {
             float m_zoom;
             ProjectionMode m_projectionMode;
             Viewport m_viewport;
+
+            float m_orthographicSize;
+            bool m_aspectRatioLock;
+            float m_aspectRatio;
+            bool m_pixelPerfect;
+            RenderOrder m_renderOrder;
 
             ScreenShakeConfig m_shake;
             float m_shakeTime;
