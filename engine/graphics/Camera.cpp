@@ -12,6 +12,11 @@ namespace nebula {
             , m_rotation(0.f)
             , m_zoom(1.f)
             , m_projectionMode(ProjectionMode::Orthographic)
+            , m_orthographicSize(5.f)
+            , m_aspectRatioLock(false)
+            , m_aspectRatio(1.f)
+            , m_pixelPerfect(false)
+            , m_renderOrder(RenderOrder::Default)
             , m_shakeTime(0.f)
             , m_shakeOffset(0.f, 0.f)
             , m_smoothPosition(0.f, 0.f) {}
@@ -22,6 +27,11 @@ namespace nebula {
             , m_rotation(0.f)
             , m_zoom(1.f)
             , m_projectionMode(ProjectionMode::Orthographic)
+            , m_orthographicSize(5.f)
+            , m_aspectRatioLock(false)
+            , m_aspectRatio(1.f)
+            , m_pixelPerfect(false)
+            , m_renderOrder(RenderOrder::Default)
             , m_shakeTime(0.f)
             , m_shakeOffset(0.f, 0.f)
             , m_smoothPosition(position) {}
@@ -32,6 +42,11 @@ namespace nebula {
             , m_rotation(rotation)
             , m_zoom(zoom)
             , m_projectionMode(ProjectionMode::Orthographic)
+            , m_orthographicSize(5.f)
+            , m_aspectRatioLock(false)
+            , m_aspectRatio(1.f)
+            , m_pixelPerfect(false)
+            , m_renderOrder(RenderOrder::Default)
             , m_shakeTime(0.f)
             , m_shakeOffset(0.f, 0.f)
             , m_smoothPosition(position) {}
@@ -286,6 +301,117 @@ namespace nebula {
 
         const Viewport& Camera::getViewport() const {
             return m_viewport;
+        }
+
+        bool Frustum::isVisible(const sf::FloatRect& aabb) const {
+            sf::Vector2f corners[4] = {
+                sf::Vector2f(aabb.left, aabb.top),
+                sf::Vector2f(aabb.left + aabb.width, aabb.top),
+                sf::Vector2f(aabb.left + aabb.width, aabb.top + aabb.height),
+                sf::Vector2f(aabb.left, aabb.top + aabb.height)
+            };
+            for (const auto& plane : planes) {
+                bool allOutside = true;
+                for (int i = 0; i < 4; ++i) {
+                    float dot = corners[i].x * plane.normal.x + corners[i].y * plane.normal.y;
+                    if (dot + plane.distance > 0) {
+                        allOutside = false;
+                        break;
+                    }
+                }
+                if (allOutside) return false;
+            }
+            return true;
+        }
+
+        bool Frustum::isVisible(const sf::Vector2f& center, float radius) const {
+            for (const auto& plane : planes) {
+                float dot = center.x * plane.normal.x + center.y * plane.normal.y;
+                if (dot + plane.distance + radius <= 0) return false;
+            }
+            return true;
+        }
+
+        Frustum Camera::getFrustum() const {
+            Frustum frustum;
+            float halfW = m_size.x * m_zoom / 2.f;
+            float halfH = m_size.y * m_zoom / 2.f;
+            sf::Vector2f pos = applyShake(m_position);
+
+            float cr = std::cos(m_rotation * 3.14159265f / 180.f);
+            float sr = std::sin(m_rotation * 3.14159265f / 180.f);
+
+            sf::Vector2f right(cr, sr);
+            sf::Vector2f up(-sr, cr);
+
+            // Left plane
+            sf::Vector2f leftNormal = sf::Vector2f(-right.x, -right.y);
+            frustum.planes[0] = FrustumPlane(leftNormal, halfW);
+            // Right plane
+            frustum.planes[1] = FrustumPlane(right, -halfW);
+            // Bottom plane
+            sf::Vector2f bottomNormal = sf::Vector2f(-up.x, -up.y);
+            frustum.planes[2] = FrustumPlane(bottomNormal, halfH);
+            // Top plane
+            frustum.planes[3] = FrustumPlane(up, -halfH);
+
+            return frustum;
+        }
+
+        bool Camera::isVisible(const sf::FloatRect& aabb) const {
+            return getFrustum().isVisible(aabb);
+        }
+
+        bool Camera::isVisible(const sf::Vector2f& center, float radius) const {
+            return getFrustum().isVisible(center, radius);
+        }
+
+        void Camera::setOrthographicSize(float size) {
+            m_orthographicSize = size;
+            float aspect = m_size.x / m_size.y;
+            m_size = sf::Vector2f(size * aspect, size);
+        }
+
+        float Camera::getOrthographicSize() const {
+            return m_orthographicSize;
+        }
+
+        void Camera::setAspectRatioLock(bool lock) {
+            m_aspectRatioLock = lock;
+            if (lock) {
+                m_aspectRatio = m_size.x / m_size.y;
+            }
+        }
+
+        bool Camera::isAspectRatioLocked() const {
+            return m_aspectRatioLock;
+        }
+
+        void Camera::setAspectRatio(float ratio) {
+            m_aspectRatio = ratio;
+            if (m_aspectRatioLock) {
+                m_size.x = m_size.y * ratio;
+            }
+        }
+
+        float Camera::getAspectRatio() const {
+            return m_aspectRatio;
+        }
+
+        void Camera::setPixelPerfect(bool enabled) {
+            m_pixelPerfect = enabled;
+        }
+
+        bool Camera::isPixelPerfect() const {
+            return m_pixelPerfect;
+        }
+
+        void Camera::setRenderOrder(RenderOrder order) {
+            m_renderOrder = order;
+        }
+
+        RenderOrder Camera::getRenderOrder() const {
+            return m_renderOrder;
         }
 
         sf::Vector2f Camera::applyShake(const sf::Vector2f& pos) const {
