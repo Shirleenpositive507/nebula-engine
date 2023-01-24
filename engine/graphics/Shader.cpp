@@ -11,12 +11,14 @@ namespace nebula {
         Shader::Shader()
             : m_name("unnamed")
             , m_shader(std::make_unique<sf::Shader>())
+            , m_activeStages(ShaderStage::None)
             , m_hotReloadEnabled(false)
             , m_lastFileCheck(std::chrono::system_clock::now()) {}
 
         Shader::Shader(const std::string& name)
             : m_name(name)
             , m_shader(std::make_unique<sf::Shader>())
+            , m_activeStages(ShaderStage::None)
             , m_hotReloadEnabled(false)
             , m_lastFileCheck(std::chrono::system_clock::now()) {}
 
@@ -240,6 +242,113 @@ namespace nebula {
             m_fragmentSource = fragmentSource;
             m_vertexPath.clear();
             m_fragmentPath.clear();
+        }
+
+        // --- Geometry/Tessellation/Compute shader methods ---
+
+        bool Shader::loadFromFile(const std::string& vertexPath, const std::string& geometryPath, const std::string& fragmentPath) {
+            m_vertexPath = vertexPath;
+            m_geometryPath = geometryPath;
+            m_fragmentPath = fragmentPath;
+            m_activeStages = ShaderStage::Vertex | ShaderStage::Geometry | ShaderStage::Fragment;
+
+            std::ifstream vFile(vertexPath), gFile(geometryPath), fFile(fragmentPath);
+            if (!vFile.is_open() || !gFile.is_open() || !fFile.is_open()) return false;
+
+            m_vertexSource = std::string((std::istreambuf_iterator<char>(vFile)), std::istreambuf_iterator<char>());
+            m_geometrySource = std::string((std::istreambuf_iterator<char>(gFile)), std::istreambuf_iterator<char>());
+            m_fragmentSource = std::string((std::istreambuf_iterator<char>(fFile)), std::istreambuf_iterator<char>());
+
+            return compileInternal();
+        }
+
+        bool Shader::loadFromFile(const std::string& vertexPath, const std::string& tessControlPath,
+                                   const std::string& tessEvalPath, const std::string& geometryPath, const std::string& fragmentPath) {
+            m_vertexPath = vertexPath;
+            m_tessControlPath = tessControlPath;
+            m_tessEvalPath = tessEvalPath;
+            m_geometryPath = geometryPath;
+            m_fragmentPath = fragmentPath;
+            m_activeStages = ShaderStage::Vertex | ShaderStage::TessellationControl |
+                             ShaderStage::TessellationEvaluation | ShaderStage::Geometry | ShaderStage::Fragment;
+            return compileInternal();
+        }
+
+        bool Shader::loadFromFile(const std::string& computePath) {
+            m_computePath = computePath;
+            m_activeStages = ShaderStage::Compute;
+
+            std::ifstream cFile(computePath);
+            if (!cFile.is_open()) return false;
+            m_computeSource = std::string((std::istreambuf_iterator<char>(cFile)), std::istreambuf_iterator<char>());
+            return compileInternal();
+        }
+
+        bool Shader::loadFromMemory(const std::string& vertexSource, const std::string& geometrySource, const std::string& fragmentSource) {
+            m_vertexSource = vertexSource;
+            m_geometrySource = geometrySource;
+            m_fragmentSource = fragmentSource;
+            m_activeStages = ShaderStage::Vertex | ShaderStage::Geometry | ShaderStage::Fragment;
+            return compileInternal();
+        }
+
+        bool Shader::loadFromMemory(const std::string& vertexSource, const std::string& tessControlSource,
+                                     const std::string& tessEvalSource, const std::string& geometrySource, const std::string& fragmentSource) {
+            m_vertexSource = vertexSource;
+            m_tessControlSource = tessControlSource;
+            m_tessEvalSource = tessEvalSource;
+            m_geometrySource = geometrySource;
+            m_fragmentSource = fragmentSource;
+            m_activeStages = ShaderStage::Vertex | ShaderStage::TessellationControl |
+                             ShaderStage::TessellationEvaluation | ShaderStage::Geometry | ShaderStage::Fragment;
+            return compileInternal();
+        }
+
+        bool Shader::loadFromMemory(const std::string& computeSource) {
+            m_computeSource = computeSource;
+            m_activeStages = ShaderStage::Compute;
+            return compileInternal();
+        }
+
+        void Shader::setUniformBlockBinding(const std::string& name, unsigned int binding) {
+            m_uniformBlocks[name].name = name;
+            m_uniformBlocks[name].binding = binding;
+        }
+
+        bool Shader::hasUniformBlock(const std::string& name) const {
+            return m_uniformBlocks.find(name) != m_uniformBlocks.end();
+        }
+
+        void Shader::setShaderStorageBlock(const std::string& name, unsigned int binding) {
+            m_storageBlocks[name].name = name;
+            m_storageBlocks[name].binding = binding;
+        }
+
+        bool Shader::hasShaderStorageBlock(const std::string& name) const {
+            return m_storageBlocks.find(name) != m_storageBlocks.end();
+        }
+
+        void Shader::dispatchCompute(unsigned int groupX, unsigned int groupY, unsigned int groupZ) {
+        }
+
+        void Shader::dispatchComputeIndirect(unsigned int indirectBuffer) {
+        }
+
+        ShaderStage Shader::getActiveStages() const {
+            return m_activeStages;
+        }
+
+        bool Shader::hasStage(ShaderStage stage) const {
+            return (static_cast<int>(m_activeStages) & static_cast<int>(stage)) != 0;
+        }
+
+        const std::string& Shader::getGeometrySource() const { return m_geometrySource; }
+        const std::string& Shader::getTessControlSource() const { return m_tessControlSource; }
+        const std::string& Shader::getTessEvalSource() const { return m_tessEvalSource; }
+        const std::string& Shader::getComputeSource() const { return m_computeSource; }
+
+        bool Shader::isComputeShader() const {
+            return hasStage(ShaderStage::Compute);
         }
 
     }
