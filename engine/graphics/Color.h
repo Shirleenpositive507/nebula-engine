@@ -2,10 +2,63 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <SFML/Graphics/Color.hpp>
 
 namespace nebula {
     namespace graphics {
+
+        struct HSL {
+            float h, s, l, a;
+            HSL() : h(0), s(0), l(0), a(1) {}
+            HSL(float hue, float sat, float light, float alpha = 1)
+                : h(hue), s(sat), l(light), a(alpha) {}
+        };
+
+        struct HSV {
+            float h, s, v, a;
+            HSV() : h(0), s(0), v(0), a(1) {}
+            HSV(float hue, float sat, float val, float alpha = 1)
+                : h(hue), s(sat), v(val), a(alpha) {}
+        };
+
+        enum class BlendOp {
+            Normal,
+            Multiply,
+            Screen,
+            Overlay,
+            Add,
+            Subtract
+        };
+
+        class ColorStop {
+        public:
+            float position;
+            Color color;
+
+            ColorStop() : position(0) {}
+            ColorStop(float pos, const Color& col) : position(pos), color(col) {}
+        };
+
+        class Gradient {
+        public:
+            Gradient();
+            explicit Gradient(const std::vector<ColorStop>& stops);
+
+            void addStop(float position, const Color& color);
+            void removeStop(float position);
+            void clearStops();
+            void sortStops();
+
+            Color evaluate(float t) const;
+            std::vector<Color> evaluateMany(const std::vector<float>& positions) const;
+
+            std::size_t getNumStops() const;
+            const std::vector<ColorStop>& getStops() const;
+
+        private:
+            std::vector<ColorStop> m_stops;
+        };
 
         class Color {
         public:
@@ -34,7 +87,19 @@ namespace nebula {
             static Color lerp(const Color& a, const Color& b, float t);
             Color withAlpha(uint8_t alpha) const;
             float brightness() const;
+            float luminance() const;
             Color invert() const;
+
+            HSL toHSL() const;
+            HSV toHSV() const;
+            static Color fromHSL(const HSL& hsl);
+            static Color fromHSV(const HSV& hsv);
+
+            Color blend(const Color& other, BlendOp op = BlendOp::Normal) const;
+            static Color blend(const Color& a, const Color& b, BlendOp op);
+            Color multiply(const Color& other) const;
+            Color screen(const Color& other) const;
+            Color overlay(const Color& other) const;
 
             static const Color White;
             static const Color Black;
