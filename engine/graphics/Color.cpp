@@ -190,5 +190,260 @@ namespace nebula {
             );
         }
 
+        float Color::luminance() const {
+            float rNorm = static_cast<float>(r) / 255.0f;
+            float gNorm = static_cast<float>(g) / 255.0f;
+            float bNorm = static_cast<float>(b) / 255.0f;
+
+            auto linearize = [](float c) {
+                return (c <= 0.04045f) ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+            };
+
+            return 0.2126f * linearize(rNorm) + 0.7152f * linearize(gNorm) + 0.0722f * linearize(bNorm);
+        }
+
+        HSL Color::toHSL() const {
+            float rNorm = static_cast<float>(r) / 255.0f;
+            float gNorm = static_cast<float>(g) / 255.0f;
+            float bNorm = static_cast<float>(b) / 255.0f;
+
+            float max = std::max({rNorm, gNorm, bNorm});
+            float min = std::min({rNorm, gNorm, bNorm});
+            float diff = max - min;
+
+            HSL hsl;
+            hsl.l = (max + min) / 2.0f;
+            hsl.a = static_cast<float>(a) / 255.0f;
+
+            if (diff < 0.0001f) {
+                hsl.h = 0;
+                hsl.s = 0;
+            } else {
+                hsl.s = hsl.l > 0.5f ? diff / (2.0f - max - min) : diff / (max + min);
+
+                if (max == rNorm) {
+                    hsl.h = std::fmod((gNorm - bNorm) / diff + (gNorm < bNorm ? 6.0f : 0.0f), 6.0f);
+                } else if (max == gNorm) {
+                    hsl.h = (bNorm - rNorm) / diff + 2.0f;
+                } else {
+                    hsl.h = (rNorm - gNorm) / diff + 4.0f;
+                }
+                hsl.h *= 60.0f;
+            }
+            return hsl;
+        }
+
+        HSV Color::toHSV() const {
+            float rNorm = static_cast<float>(r) / 255.0f;
+            float gNorm = static_cast<float>(g) / 255.0f;
+            float bNorm = static_cast<float>(b) / 255.0f;
+
+            float max = std::max({rNorm, gNorm, bNorm});
+            float min = std::min({rNorm, gNorm, bNorm});
+            float diff = max - min;
+
+            HSV hsv;
+            hsv.v = max;
+            hsv.a = static_cast<float>(a) / 255.0f;
+
+            if (diff < 0.0001f) {
+                hsv.h = 0;
+                hsv.s = 0;
+            } else {
+                hsv.s = diff / max;
+                if (max == rNorm) {
+                    hsv.h = std::fmod((gNorm - bNorm) / diff + (gNorm < bNorm ? 6.0f : 0.0f), 6.0f);
+                } else if (max == gNorm) {
+                    hsv.h = (bNorm - rNorm) / diff + 2.0f;
+                } else {
+                    hsv.h = (rNorm - gNorm) / diff + 4.0f;
+                }
+                hsv.h *= 60.0f;
+            }
+            return hsv;
+        }
+
+        Color Color::fromHSL(const HSL& hsl) {
+            if (hsl.s < 0.0001f) {
+                uint8_t v = static_cast<uint8_t>(std::round(hsl.l * 255.0f));
+                return Color(v, v, v, static_cast<uint8_t>(std::round(hsl.a * 255.0f)));
+            }
+
+            float h = hsl.h / 60.0f;
+            float c = (1.0f - std::abs(2.0f * hsl.l - 1.0f)) * hsl.s;
+            float x = c * (1.0f - std::abs(std::fmod(h, 2.0f) - 1.0f));
+            float m = hsl.l - c / 2.0f;
+
+            float r, g, b;
+            if (h < 1) { r = c; g = x; b = 0; }
+            else if (h < 2) { r = x; g = c; b = 0; }
+            else if (h < 3) { r = 0; g = c; b = x; }
+            else if (h < 4) { r = 0; g = x; b = c; }
+            else if (h < 5) { r = x; g = 0; b = c; }
+            else { r = c; g = 0; b = x; }
+
+            return Color(
+                static_cast<uint8_t>(std::round((r + m) * 255.0f)),
+                static_cast<uint8_t>(std::round((g + m) * 255.0f)),
+                static_cast<uint8_t>(std::round((b + m) * 255.0f)),
+                static_cast<uint8_t>(std::round(hsl.a * 255.0f))
+            );
+        }
+
+        Color Color::fromHSV(const HSV& hsv) {
+            if (hsv.s < 0.0001f) {
+                uint8_t v = static_cast<uint8_t>(std::round(hsv.v * 255.0f));
+                return Color(v, v, v, static_cast<uint8_t>(std::round(hsv.a * 255.0f)));
+            }
+
+            float h = hsv.h / 60.0f;
+            float c = hsv.v * hsv.s;
+            float x = c * (1.0f - std::abs(std::fmod(h, 2.0f) - 1.0f));
+            float m = hsv.v - c;
+
+            float r, g, b;
+            if (h < 1) { r = c; g = x; b = 0; }
+            else if (h < 2) { r = x; g = c; b = 0; }
+            else if (h < 3) { r = 0; g = c; b = x; }
+            else if (h < 4) { r = 0; g = x; b = c; }
+            else if (h < 5) { r = x; g = 0; b = c; }
+            else { r = c; g = 0; b = x; }
+
+            return Color(
+                static_cast<uint8_t>(std::round((r + m) * 255.0f)),
+                static_cast<uint8_t>(std::round((g + m) * 255.0f)),
+                static_cast<uint8_t>(std::round((b + m) * 255.0f)),
+                static_cast<uint8_t>(std::round(hsv.a * 255.0f))
+            );
+        }
+
+        Color Color::blend(const Color& other, BlendOp op) const {
+            return blend(*this, other, op);
+        }
+
+        Color Color::blend(const Color& a, const Color& b, BlendOp op) {
+            float ar = static_cast<float>(a.r) / 255.0f;
+            float ag = static_cast<float>(a.g) / 255.0f;
+            float ab = static_cast<float>(a.b) / 255.0f;
+            float br = static_cast<float>(b.r) / 255.0f;
+            float bg = static_cast<float>(b.g) / 255.0f;
+            float bb = static_cast<float>(b.b) / 255.0f;
+
+            float rr, rg, rb;
+            switch (op) {
+                case BlendOp::Multiply:
+                    rr = ar * br; rg = ag * bg; rb = ab * bb;
+                    break;
+                case BlendOp::Screen:
+                    rr = 1.0f - (1.0f - ar) * (1.0f - br);
+                    rg = 1.0f - (1.0f - ag) * (1.0f - bg);
+                    rb = 1.0f - (1.0f - ab) * (1.0f - bb);
+                    break;
+                case BlendOp::Overlay: {
+                    auto overlay = [](float base, float blend) {
+                        return (base < 0.5f) ? 2.0f * base * blend : 1.0f - 2.0f * (1.0f - base) * (1.0f - blend);
+                    };
+                    rr = overlay(ar, br); rg = overlay(ag, bg); rb = overlay(ab, bb);
+                    break;
+                }
+                case BlendOp::Add:
+                    rr = std::min(1.0f, ar + br);
+                    rg = std::min(1.0f, ag + bg);
+                    rb = std::min(1.0f, ab + bb);
+                    break;
+                case BlendOp::Subtract:
+                    rr = std::max(0.0f, ar - br);
+                    rg = std::max(0.0f, ag - bg);
+                    rb = std::max(0.0f, ab - bb);
+                    break;
+                default:
+                    rr = br; rg = bg; rb = bb;
+                    break;
+            }
+
+            return Color(
+                static_cast<uint8_t>(std::round(rr * 255.0f)),
+                static_cast<uint8_t>(std::round(rg * 255.0f)),
+                static_cast<uint8_t>(std::round(rb * 255.0f)),
+                a.a
+            );
+        }
+
+        Color Color::multiply(const Color& other) const {
+            return blend(other, BlendOp::Multiply);
+        }
+
+        Color Color::screen(const Color& other) const {
+            return blend(other, BlendOp::Screen);
+        }
+
+        Color Color::overlay(const Color& other) const {
+            return blend(other, BlendOp::Overlay);
+        }
+
+        // --- Gradient ---
+
+        Gradient::Gradient() {}
+
+        Gradient::Gradient(const std::vector<ColorStop>& stops) : m_stops(stops) {
+            sortStops();
+        }
+
+        void Gradient::addStop(float position, const Color& color) {
+            m_stops.push_back(ColorStop(position, color));
+            sortStops();
+        }
+
+        void Gradient::removeStop(float position) {
+            for (auto it = m_stops.begin(); it != m_stops.end(); ) {
+                if (std::abs(it->position - position) < 0.001f) {
+                    it = m_stops.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        void Gradient::clearStops() {
+            m_stops.clear();
+        }
+
+        void Gradient::sortStops() {
+            std::sort(m_stops.begin(), m_stops.end(),
+                [](const ColorStop& a, const ColorStop& b) {
+                    return a.position < b.position;
+                });
+        }
+
+        Color Gradient::evaluate(float t) const {
+            if (m_stops.empty()) return Color::Black;
+            if (m_stops.size() == 1) return m_stops[0].color;
+
+            t = std::max(0.0f, std::min(1.0f, t));
+
+            if (t <= m_stops.front().position) return m_stops.front().color;
+            if (t >= m_stops.back().position) return m_stops.back().color;
+
+            for (std::size_t i = 0; i < m_stops.size() - 1; ++i) {
+                if (t >= m_stops[i].position && t <= m_stops[i + 1].position) {
+                    float localT = (t - m_stops[i].position) / (m_stops[i + 1].position - m_stops[i].position);
+                    return Color::lerp(m_stops[i].color, m_stops[i + 1].color, localT);
+                }
+            }
+            return m_stops.back().color;
+        }
+
+        std::vector<Color> Gradient::evaluateMany(const std::vector<float>& positions) const {
+            std::vector<Color> colors;
+            colors.reserve(positions.size());
+            for (float p : positions) {
+                colors.push_back(evaluate(p));
+            }
+            return colors;
+        }
+
+        std::size_t Gradient::getNumStops() const { return m_stops.size(); }
+        const std::vector<ColorStop>& Gradient::getStops() const { return m_stops; }
+
     }
 }
