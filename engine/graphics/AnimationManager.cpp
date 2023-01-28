@@ -193,5 +193,225 @@ namespace nebula {
             return it != m_animations.end() ? &it->second : nullptr;
         }
 
+        // --- Blend Tree 1D ---
+
+        void BlendTree1D::addNode(float position, const std::string& animationName) {
+            m_nodes.push_back(BlendTree1DNode(position, animationName));
+            std::sort(m_nodes.begin(), m_nodes.end(),
+                [](const BlendTree1DNode& a, const BlendTree1DNode& b) {
+                    return a.position < b.position;
+                });
+        }
+
+        void BlendTree1D::removeNode(const std::string& animationName) {
+            m_nodes.erase(std::remove_if(m_nodes.begin(), m_nodes.end(),
+                [&](const BlendTree1DNode& n) { return n.animationName == animationName; }),
+                m_nodes.end());
+        }
+
+        std::vector<BlendTree1DNode> BlendTree1D::evaluate(float inputPosition) const {
+            if (m_nodes.empty()) return {};
+            if (m_nodes.size() == 1) {
+                auto result = m_nodes;
+                result[0].weight = 1.0f;
+                return result;
+            }
+
+            if (inputPosition <= m_nodes.front().position) {
+                auto result = m_nodes;
+                result[0].weight = 1.0f;
+                for (std::size_t i = 1; i < result.size(); ++i) result[i].weight = 0;
+                return result;
+            }
+            if (inputPosition >= m_nodes.back().position) {
+                auto result = m_nodes;
+                result.back().weight = 1.0f;
+                for (std::size_t i = 0; i < result.size() - 1; ++i) result[i].weight = 0;
+                return result;
+            }
+
+            for (std::size_t i = 0; i < m_nodes.size() - 1; ++i) {
+                if (inputPosition >= m_nodes[i].position && inputPosition <= m_nodes[i + 1].position) {
+                    float range = m_nodes[i + 1].position - m_nodes[i].position;
+                    float t = (inputPosition - m_nodes[i].position) / range;
+                    auto result = m_nodes;
+                    for (std::size_t j = 0; j < result.size(); ++j) result[j].weight = 0;
+                    result[i].weight = 1.0f - t;
+                    result[i + 1].weight = t;
+                    return result;
+                }
+            }
+            return {};
+        }
+
+        void BlendTree1D::clear() { m_nodes.clear(); }
+
+        // --- Blend Tree 2D ---
+
+        void BlendTree2D::addNode(const sf::Vector2f& position, const std::string& animationName) {
+            m_nodes.push_back(BlendTree2DNode(position, animationName));
+        }
+
+        void BlendTree2D::removeNode(const std::string& animationName) {
+            m_nodes.erase(std::remove_if(m_nodes.begin(), m_nodes.end(),
+                [&](const BlendTree2DNode& n) { return n.animationName == animationName; }),
+                m_nodes.end());
+        }
+
+        std::vector<BlendTree2DNode> BlendTree2D::evaluate(const sf::Vector2f& inputPosition) const {
+            if (m_nodes.empty()) return {};
+            if (m_nodes.size() == 1) {
+                auto result = m_nodes;
+                result[0].weight = 1.0f;
+                return result;
+            }
+
+            auto result = m_nodes;
+            for (auto& node : result) {
+                sf::Vector2f diff = inputPosition - node.position;
+                float dist = std::sqrt(diff.x * diff.x + diff.y * diff.y);
+                node.weight = (dist < 0.001f) ? 1.0f : 1.0f / dist;
+            }
+
+            float totalWeight = 0;
+            for (const auto& node : result) totalWeight += node.weight;
+            if (totalWeight > 0) {
+                for (auto& node : result) node.weight /= totalWeight;
+            }
+            return result;
+        }
+
+        void BlendTree2D::clear() { m_nodes.clear(); }
+
+        // --- Animation events ---
+
+        void AnimationManager::addEvent(const std::string& animationName, const AnimationEvent& event) {
+            m_events[animationName].push_back(event);
+            std::sort(m_events[animationName].begin(), m_events[animationName].end(),
+                [](const AnimationEvent& a, const AnimationEvent& b) { return a.time < b.time; });
+        }
+
+        void AnimationManager::removeEvent(const std::string& animationName, const std::string& eventName) {
+            auto it = m_events.find(animationName);
+            if (it != m_events.end()) {
+                it->second.erase(std::remove_if(it->second.begin(), it->second.end(),
+                    [&](const AnimationEvent& e) { return e.name == eventName; }), it->second.end());
+            }
+        }
+
+        void AnimationManager::clearEvents(const std::string& animationName) {
+            m_events.erase(animationName);
+        }
+
+        std::vector<AnimationEvent> AnimationManager::getEvents(const std::string& animationName) const {
+            auto it = m_events.find(animationName);
+            return (it != m_events.end()) ? it->second : std::vector<AnimationEvent>();
+        }
+
+        void AnimationManager::checkEvents(const std::string& animationName, float currentTime, float previousTime) {
+            auto it = m_events.find(animationName);
+            if (it == m_events.end()) return;
+
+            for (const auto& event : it->second) {
+                if (event.time >= previousTime && event.time < currentTime) {
+                    if (event.callback) event.callback();
+                }
+            }
+        }
+
+        // --- Blend trees (manager) ---
+
+        void AnimationManager::setBlendTree1D(const std::string& name, const BlendTree1D& tree) {
+            m_blendTrees1D[name] = tree;
+        }
+
+        void AnimationManager::setBlendTree2D(const std::string& name, const BlendTree2D& tree) {
+            m_blendTrees2D[name] = tree;
+        }
+
+        BlendTree1D* AnimationManager::getBlendTree1D(const std::string& name) {
+            auto it = m_blendTrees1D.find(name);
+            return (it != m_blendTrees1D.end()) ? &it->second : nullptr;
+        }
+
+        BlendTree2D* AnimationManager::getBlendTree2D(const std::string& name) {
+            auto it = m_blendTrees2D.find(name);
+            return (it != m_blendTrees2D.end()) ? &it->second : nullptr;
+        }
+
+        void AnimationManager::evaluateBlendTree1D(const std::string& name, float input) {
+            auto it = m_blendTrees1D.find(name);
+            if (it == m_blendTrees1D.end()) return;
+            auto nodes = it->second.evaluate(input);
+            for (const auto& node : nodes) {
+                auto animIt = m_animations.find(node.animationName);
+                if (animIt != m_animations.end()) {
+                    animIt->second.setWeight(node.weight);
+                }
+            }
+        }
+
+        void AnimationManager::evaluateBlendTree2D(const std::string& name, const sf::Vector2f& input) {
+            auto it = m_blendTrees2D.find(name);
+            if (it == m_blendTrees2D.end()) return;
+            auto nodes = it->second.evaluate(input);
+            for (const auto& node : nodes) {
+                auto animIt = m_animations.find(node.animationName);
+                if (animIt != m_animations.end()) {
+                    animIt->second.setWeight(node.weight);
+                }
+            }
+        }
+
+        // --- Animation layers ---
+
+        int AnimationManager::addLayer(const std::string& name, float weight, bool additive) {
+            AnimationLayer layer;
+            layer.name = name;
+            layer.weight = weight;
+            layer.additive = additive;
+            m_layers[name] = layer;
+            return static_cast<int>(m_layers.size());
+        }
+
+        bool AnimationManager::removeLayer(const std::string& name) {
+            return m_layers.erase(name) > 0;
+        }
+
+        AnimationLayer* AnimationManager::getLayer(const std::string& name) {
+            auto it = m_layers.find(name);
+            return (it != m_layers.end()) ? &it->second : nullptr;
+        }
+
+        void AnimationManager::setLayerWeight(const std::string& name, float weight) {
+            auto it = m_layers.find(name);
+            if (it != m_layers.end()) it->second.weight = weight;
+        }
+
+        float AnimationManager::getLayerWeight(const std::string& name) const {
+            auto it = m_layers.find(name);
+            return (it != m_layers.end()) ? it->second.weight : 0.0f;
+        }
+
+        void AnimationManager::setLayerAdditive(const std::string& name, bool additive) {
+            auto it = m_layers.find(name);
+            if (it != m_layers.end()) it->second.additive = additive;
+        }
+
+        void AnimationManager::playOnLayer(const std::string& layerName, const std::string& animationName) {
+            auto it = m_layers.find(layerName);
+            if (it != m_layers.end() && m_animations.find(animationName) != m_animations.end()) {
+                it->second.currentAnimation = animationName;
+                it->second.time = 0;
+            }
+        }
+
+        std::vector<std::string> AnimationManager::getLayerNames() const {
+            std::vector<std::string> names;
+            names.reserve(m_layers.size());
+            for (const auto& pair : m_layers) names.push_back(pair.first);
+            return names;
+        }
+
     }
 }
