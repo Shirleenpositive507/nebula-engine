@@ -3,11 +3,13 @@
 #include <SFML/Graphics/Shader.hpp>
 #include <SFML/Graphics/RenderTexture.hpp>
 #include <SFML/Graphics/Sprite.hpp>
+#include <SFML/Graphics/VertexArray.hpp>
 #include <SFML/System/Vector2.hpp>
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <memory>
+#include <functional>
 
 namespace nebula {
     namespace graphics {
@@ -19,7 +21,18 @@ namespace nebula {
             ChromaticAberration,
             Vignette,
             Bloom,
+            ToneMapReinhard,
+            ToneMapACES,
+            ToneMapFilmic,
+            GammaCorrection,
             Custom
+        };
+
+        enum class ToneMapOperator {
+            Reinhard,
+            ACES,
+            Filmic,
+            None
         };
 
         struct EffectParameter {
@@ -64,8 +77,14 @@ namespace nebula {
 
             void enable(const std::string& name);
             void disable(const std::string& name);
+            bool isEnabled(const std::string& name) const;
 
             void setActive(const std::string& name, bool active);
+
+            // Effect chain reordering
+            void moveEffectUp(const std::string& name);
+            void moveEffectDown(const std::string& name);
+            void moveEffectTo(const std::string& name, std::size_t position);
 
             void render(sf::RenderTexture& input, sf::RenderTarget& output);
 
@@ -81,10 +100,26 @@ namespace nebula {
             void setVignette(float intensity, const sf::Color& color = sf::Color::Black, float radius = 0.5f);
             void setBloom(float threshold, float blurAmount, float intensity);
 
+            // HDR tone mapping
+            void setToneMapping(ToneMapOperator op);
+            ToneMapOperator getToneMapping() const;
+            void setExposure(float exposure);
+            float getExposure() const;
+
+            // Gamma correction
+            void setGamma(float gamma);
+            float getGamma() const;
+            void setGammaCorrectionEnabled(bool enabled);
+            bool isGammaCorrectionEnabled() const;
+
             PostEffect* getEffect(const std::string& name);
             std::vector<std::string> getEffectNames() const;
 
             bool isInitialized() const;
+
+            // Full-screen quad utility
+            static sf::VertexArray createFullScreenQuad();
+            static void renderFullScreenQuad(sf::RenderTarget& target, sf::Shader* shader = nullptr);
 
         private:
             std::vector<PostEffect> m_effects;
@@ -92,6 +127,11 @@ namespace nebula {
             sf::RenderTexture m_pong;
             sf::Sprite m_sprite;
             bool m_initialized;
+
+            ToneMapOperator m_toneMapOp;
+            float m_exposure;
+            float m_gamma;
+            bool m_gammaCorrection;
 
             void initializeTempTextures(unsigned int width, unsigned int height);
             void applyEffect(const PostEffect& effect, sf::RenderTexture& input, sf::RenderTexture& output);
@@ -102,6 +142,8 @@ namespace nebula {
             bool generateChromaticAberrationShader(sf::Shader& shader, float strength);
             bool generateVignetteShader(sf::Shader& shader, float intensity, const sf::Color& color, float radius);
             bool generateBloomShader(sf::Shader& shader, float threshold, float intensity);
+            bool generateToneMapShader(sf::Shader& shader, ToneMapOperator op, float exposure);
+            bool generateGammaShader(sf::Shader& shader, float gamma);
         };
 
     }
