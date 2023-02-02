@@ -7,7 +7,11 @@ namespace nebula {
     namespace graphics {
 
         PostProcess::PostProcess()
-            : m_initialized(false) {}
+            : m_initialized(false)
+            , m_toneMapOp(ToneMapOperator::None)
+            , m_exposure(1.0f)
+            , m_gamma(2.2f)
+            , m_gammaCorrection(false) {}
 
         void PostProcess::addEffect(const std::string& name, EffectType type) {
             PostEffect effect;
@@ -418,6 +422,188 @@ namespace nebula {
             fragment += "    float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));\n";
             fragment += "    float amount = max(0.0, luminance - threshold) / (1.0 - threshold);\n";
             fragment += "    gl_FragColor = vec4(color.rgb * amount * intensity, color.a);\n";
+            fragment += "}\n";
+            return shader.loadFromMemory(fragment, sf::Shader::Fragment);
+        }
+
+        // --- Effect chain reordering ---
+
+        void PostProcess::moveEffectUp(const std::string& name) {
+            for (std::size_t i = 1; i < m_effects.size(); ++i) {
+                if (m_effects[i].name == name) {
+                    std::swap(m_effects[i], m_effects[i - 1]);
+                    return;
+                }
+            }
+        }
+
+        void PostProcess::moveEffectDown(const std::string& name) {
+            for (std::size_t i = 0; i + 1 < m_effects.size(); ++i) {
+                if (m_effects[i].name == name) {
+                    std::swap(m_effects[i], m_effects[i + 1]);
+                    return;
+                }
+            }
+        }
+
+        void PostProcess::moveEffectTo(const std::string& name, std::size_t position) {
+            if (position >= m_effects.size()) position = m_effects.size() - 1;
+            for (std::size_t i = 0; i < m_effects.size(); ++i) {
+                if (m_effects[i].name == name) {
+                    PostEffect effect = m_effects[i];
+                    m_effects.erase(m_effects.begin() + static_cast<ptrdiff_t>(i));
+                    m_effects.insert(m_effects.begin() + static_cast<ptrdiff_t>(position), effect);
+                    return;
+                }
+            }
+        }
+
+        // --- Enable/Disable ---
+
+        bool PostProcess::isEnabled(const std::string& name) const {
+            for (const auto& effect : m_effects) {
+                if (effect.name == name) return effect.enabled;
+            }
+            return false;
+        }
+
+        // --- Tone Mapping ---
+
+        void PostProcess::setToneMapping(ToneMapOperator op) {
+            m_toneMapOp = op;
+            if (op != ToneMapOperator::None) {
+                std::string effectName = "_toneMap";
+                bool found = false;
+                for (auto& e : m_effects) {
+                    if (e.name == effectName) { found = true; break; }
+                }
+                if (!found) {
+                    addEffect(effectName, EffectType::ToneMapReinhard);
+                    auto* effect = getEffect(effectName);
+                    if (effect) effect->shader = std::make_shared<sf::Shader>();
+                }
+                auto* effect = getEffect(effectName);
+                if (effect) {
+                    sf::Shader s;
+                    generateToneMapShader(s, op, m_exposure);
+                    *effect->shader = s;
+                }
+            }
+        }
+
+        ToneMapOperator PostProcess::getToneMapping() const {
+            return m_toneMapOp;
+        }
+
+        void PostProcess::setExposure(float exposure) {
+            m_exposure = exposure;
+        }
+
+        float PostProcess::getExposure() const {
+            return m_exposure;
+        }
+
+        // --- Gamma Correction ---
+
+        void PostProcess::setGamma(float gamma) {
+            m_gamma = gamma;
+            if (m_gammaCorrection) {
+                std::string effectName = "_gamma";
+                auto* effect = getEffect(effectName);
+                if (effect) {
+                    sf::Shader s;
+                    generateGammaShader(s, m_gamma);
+                    *effect->shader = s;
+                }
+            }
+        }
+
+        float PostProcess::getGamma() const {
+            return m_gamma;
+        }
+
+        void PostProcess::setGammaCorrectionEnabled(bool enabled) {
+            m_gammaCorrection = enabled;
+            std::string effectName = "_gamma";
+            if (enabled) {
+                bool found = false;
+                for (auto& e : m_effects) {
+                    if (e.name == effectName) { found = true; break; }
+                }
+                if (!found) {
+                    addEffect(effectName, EffectType::GammaCorrection);
+                    auto* effect = getEffect(effectName);
+                    if (effect) {
+                        effect->shader = std::make_shared<sf::Shader>();
+                        sf::Shader s;
+                        generateGammaShader(s, m_gamma);
+                        *effect->shader = s;
+                    }
+                }
+            } else {
+                removeEffect(effectName);
+            }
+        }
+
+        bool PostProcess::isGammaCorrectionEnabled() const {
+            return m_gammaCorrection;
+        }
+
+        // --- Full-screen quad ---
+
+        sf::VertexArray PostProcess::createFullScreenQuad() {
+            sf::VertexArray quad(sf::PrimitiveType::TriangleStrip, 4);
+            quad[0] = sf::Vertex(sf::Vector2f(-1.f, -1.f), sf::Vector2f(0.f, 1.f));
+            quad[1] = sf::Vertex(sf::Vector2f(-1.f, 1.f), sf::Vector2f(0.f, 0.f));
+            quad[2] = sf::Vertex(sf::Vector2f(1.f, -1.f), sf::Vector2f(1.f, 1.f));
+            quad[3] = sf::Vertex(sf::Vector2f(1.f, 1.f), sf::Vector2f(1.f, 0.f));
+            return quad;
+        }
+
+        void PostProcess::renderFullScreenQuad(sf::RenderTarget& target, sf::Shader* shader) {
+            sf::RenderStates states;
+            if (shader) states.shader = shader;
+            static sf::VertexArray quad = createFullScreenQuad();
+            target.draw(quad, states);
+        }
+
+        // --- Shader generators ---
+
+        bool PostProcess::generateToneMapShader(sf::Shader& shader, ToneMapOperator op, float exposure) {
+            std::string fragment;
+            fragment += "uniform sampler2D texture;\n";
+            fragment += "uniform float exposure;\n";
+            fragment += "void main() {\n";
+            fragment += "    vec4 color = texture2D(texture, gl_TexCoord[0].xy);\n";
+            fragment += "    vec3 hdr = color.rgb * exposure;\n";
+            switch (op) {
+                case ToneMapOperator::Reinhard:
+                    fragment += "    vec3 mapped = hdr / (hdr + vec3(1.0));\n";
+                    break;
+                case ToneMapOperator::ACES:
+                    fragment += "    vec3 aces = hdr * (hdr * 2.51 + vec3(0.03));\n";
+                    fragment += "    vec3 mapped = aces / (aces * (hdr * 2.43 + vec3(0.59)) + vec3(0.14));\n";
+                    break;
+                case ToneMapOperator::Filmic:
+                    fragment += "    vec3 x = max(vec3(0.0), hdr - vec3(0.004));\n";
+                    fragment += "    vec3 mapped = (x * (hdr * 6.2 + vec3(0.5))) / (x * (hdr * 6.2 + vec3(1.7)) + vec3(0.06));\n";
+                    break;
+                default:
+                    fragment += "    vec3 mapped = hdr;\n";
+                    break;
+            }
+            fragment += "    gl_FragColor = vec4(mapped, color.a);\n";
+            fragment += "}\n";
+            return shader.loadFromMemory(fragment, sf::Shader::Fragment);
+        }
+
+        bool PostProcess::generateGammaShader(sf::Shader& shader, float gamma) {
+            std::string fragment;
+            fragment += "uniform sampler2D texture;\n";
+            fragment += "uniform float gamma;\n";
+            fragment += "void main() {\n";
+            fragment += "    vec4 color = texture2D(texture, gl_TexCoord[0].xy);\n";
+            fragment += "    gl_FragColor = vec4(pow(color.rgb, vec3(1.0 / gamma)), color.a);\n";
             fragment += "}\n";
             return shader.loadFromMemory(fragment, sf::Shader::Fragment);
         }
