@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <cmath>
 
 namespace nebula {
 namespace audio {
@@ -19,7 +20,31 @@ public:
         Distortion,
         LowPass,
         HighPass,
-        PitchShift
+        PitchShift,
+        ConvolutionReverb,
+        ParametricEQ,
+        Compressor
+    };
+
+    struct EQBand {
+        enum class BandType {
+            LowShelf,
+            HighShelf,
+            Peaking,
+            BandPass,
+            Notch
+        };
+
+        BandType type;
+        float frequency;
+        float gain;
+        float Q;
+
+        EQBand()
+            : type(BandType::Peaking)
+            , frequency(1000.0f)
+            , gain(0.0f)
+            , Q(0.707f) {}
     };
 
     struct Parameters {
@@ -32,6 +57,9 @@ public:
             struct { float cutoffFrequency; float resonance; } lowPass;
             struct { float cutoffFrequency; float resonance; } highPass;
             struct { float shiftValue; } pitchShift;
+            struct { float wetMix; float irGain; } convolution;
+            struct { std::vector<EQBand> bands; } eq;
+            struct { float threshold; float ratio; float attack; float release; float makeupGain; } compressor;
         };
     };
 
@@ -45,6 +73,21 @@ public:
 
     void setParameter(const std::string& name, float value);
     float getParameter(const std::string& name) const;
+
+    void setEQBand(std::size_t index, const EQBand& band);
+    void addEQBand(const EQBand& band);
+    void removeEQBand(std::size_t index);
+    std::size_t getEQBandCount() const;
+    EQBand getEQBand(std::size_t index) const;
+
+    bool loadImpulseResponse(const std::string& filepath);
+    bool loadImpulseResponseFromMemory(const void* data, std::size_t size);
+
+    void setThreshold(float threshold);
+    void setRatio(float ratio);
+    void setAttack(float attack);
+    void setRelease(float release);
+    void setMakeupGain(float gain);
 
     void setWetDryMix(float mix);
     float getWetDryMix() const;
@@ -61,6 +104,10 @@ private:
     float m_wetDryMix = 1.0f;
     bool m_enabled = true;
 
+    sf::SoundBuffer m_impulseResponse;
+
+    void updateCompressorEnvelope(float& envelope, float input, float sampleRate, float attack, float release);
+
     void processReverb(std::vector<std::int16_t>& samples, unsigned int sampleRate, unsigned int channels);
     void processEcho(std::vector<std::int16_t>& samples, unsigned int sampleRate, unsigned int channels);
     void processFlanger(std::vector<std::int16_t>& samples, unsigned int sampleRate, unsigned int channels);
@@ -69,6 +116,9 @@ private:
     void processLowPass(std::vector<std::int16_t>& samples, unsigned int sampleRate, unsigned int channels);
     void processHighPass(std::vector<std::int16_t>& samples, unsigned int sampleRate, unsigned int channels);
     void processPitchShift(std::vector<std::int16_t>& samples, unsigned int sampleRate, unsigned int channels);
+    void processConvolutionReverb(std::vector<std::int16_t>& samples, unsigned int sampleRate, unsigned int channels);
+    void processParametricEQ(std::vector<std::int16_t>& samples, unsigned int sampleRate, unsigned int channels);
+    void processCompressor(std::vector<std::int16_t>& samples, unsigned int sampleRate, unsigned int channels);
 };
 
 class DSPChain {
