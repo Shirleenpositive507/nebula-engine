@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <complex>
 
 namespace nebula {
 namespace audio {
@@ -33,6 +34,22 @@ AudioEffect::AudioEffect(EffectType type) : m_type(type) {
         case EffectType::PitchShift:
             m_params.pitchShift = {1.0f};
             break;
+        case EffectType::ConvolutionReverb:
+            m_params.convolution = {0.5f, 1.0f};
+            break;
+        case EffectType::ParametricEQ:
+            {
+                EQBand defaultBand;
+                defaultBand.type = EQBand::BandType::Peaking;
+                defaultBand.frequency = 1000.0f;
+                defaultBand.gain = 0.0f;
+                defaultBand.Q = 0.707f;
+                m_params.eq.bands.push_back(defaultBand);
+            }
+            break;
+        case EffectType::Compressor:
+            m_params.compressor = {-20.0f, 4.0f, 0.005f, 0.1f, 0.0f};
+            break;
     }
 }
 
@@ -51,14 +68,17 @@ void AudioEffect::apply(sf::SoundBuffer& buffer) {
     unsigned int channels = buffer.getChannelCount();
 
     switch (m_type) {
-        case EffectType::Reverb:      processReverb(samples, sampleRate, channels); break;
-        case EffectType::Echo:        processEcho(samples, sampleRate, channels); break;
-        case EffectType::Flanger:     processFlanger(samples, sampleRate, channels); break;
-        case EffectType::Chorus:      processChorus(samples, sampleRate, channels); break;
-        case EffectType::Distortion:  processDistortion(samples, channels); break;
-        case EffectType::LowPass:     processLowPass(samples, sampleRate, channels); break;
-        case EffectType::HighPass:    processHighPass(samples, sampleRate, channels); break;
-        case EffectType::PitchShift:  processPitchShift(samples, sampleRate, channels); break;
+        case EffectType::Reverb:            processReverb(samples, sampleRate, channels); break;
+        case EffectType::Echo:              processEcho(samples, sampleRate, channels); break;
+        case EffectType::Flanger:           processFlanger(samples, sampleRate, channels); break;
+        case EffectType::Chorus:            processChorus(samples, sampleRate, channels); break;
+        case EffectType::Distortion:        processDistortion(samples, channels); break;
+        case EffectType::LowPass:           processLowPass(samples, sampleRate, channels); break;
+        case EffectType::HighPass:          processHighPass(samples, sampleRate, channels); break;
+        case EffectType::PitchShift:        processPitchShift(samples, sampleRate, channels); break;
+        case EffectType::ConvolutionReverb: processConvolutionReverb(samples, sampleRate, channels); break;
+        case EffectType::ParametricEQ:      processParametricEQ(samples, sampleRate, channels); break;
+        case EffectType::Compressor:        processCompressor(samples, sampleRate, channels); break;
     }
 
     buffer.loadFromSamples(samples.data(), samples.size(), channels, sampleRate);
@@ -95,6 +115,16 @@ void AudioEffect::setParameter(const std::string& name, float value) {
         m_params.pitchShift.shiftValue = std::max(0.1f, value);
     else if (name == "feedback" && (m_type == EffectType::Flanger || m_type == EffectType::Chorus))
         m_params.flanger.feedback = std::clamp(value, 0.f, 0.99f);
+    else if (name == "threshold" && m_type == EffectType::Compressor)
+        m_params.compressor.threshold = value;
+    else if (name == "ratio" && m_type == EffectType::Compressor)
+        m_params.compressor.ratio = std::max(1.0f, value);
+    else if (name == "attack" && m_type == EffectType::Compressor)
+        m_params.compressor.attack = std::max(0.001f, value);
+    else if (name == "release" && m_type == EffectType::Compressor)
+        m_params.compressor.release = std::max(0.001f, value);
+    else if (name == "makeupGain" && m_type == EffectType::Compressor)
+        m_params.compressor.makeupGain = value;
 }
 
 float AudioEffect::getParameter(const std::string& name) const {
@@ -111,7 +141,72 @@ float AudioEffect::getParameter(const std::string& name) const {
     if (name == "resonance" && (m_type == EffectType::LowPass || m_type == EffectType::HighPass)) return m_params.lowPass.resonance;
     if (name == "shiftValue" && m_type == EffectType::PitchShift) return m_params.pitchShift.shiftValue;
     if (name == "feedback" && (m_type == EffectType::Flanger || m_type == EffectType::Chorus)) return m_params.flanger.feedback;
+    if (name == "threshold" && m_type == EffectType::Compressor) return m_params.compressor.threshold;
+    if (name == "ratio" && m_type == EffectType::Compressor) return m_params.compressor.ratio;
+    if (name == "attack" && m_type == EffectType::Compressor) return m_params.compressor.attack;
+    if (name == "release" && m_type == EffectType::Compressor) return m_params.compressor.release;
+    if (name == "makeupGain" && m_type == EffectType::Compressor) return m_params.compressor.makeupGain;
     return 0.f;
+}
+
+void AudioEffect::setEQBand(std::size_t index, const EQBand& band) {
+    if (m_type == EffectType::ParametricEQ && index < m_params.eq.bands.size()) {
+        m_params.eq.bands[index] = band;
+    }
+}
+
+void AudioEffect::addEQBand(const EQBand& band) {
+    if (m_type == EffectType::ParametricEQ) {
+        m_params.eq.bands.push_back(band);
+    }
+}
+
+void AudioEffect::removeEQBand(std::size_t index) {
+    if (m_type == EffectType::ParametricEQ && index < m_params.eq.bands.size()) {
+        m_params.eq.bands.erase(m_params.eq.bands.begin() + static_cast<std::ptrdiff_t>(index));
+    }
+}
+
+std::size_t AudioEffect::getEQBandCount() const {
+    if (m_type == EffectType::ParametricEQ) {
+        return m_params.eq.bands.size();
+    }
+    return 0;
+}
+
+AudioEffect::EQBand AudioEffect::getEQBand(std::size_t index) const {
+    if (m_type == EffectType::ParametricEQ && index < m_params.eq.bands.size()) {
+        return m_params.eq.bands[index];
+    }
+    return EQBand();
+}
+
+bool AudioEffect::loadImpulseResponse(const std::string& filepath) {
+    return m_impulseResponse.loadFromFile(filepath);
+}
+
+bool AudioEffect::loadImpulseResponseFromMemory(const void* data, std::size_t size) {
+    return m_impulseResponse.loadFromMemory(data, size);
+}
+
+void AudioEffect::setThreshold(float threshold) {
+    if (m_type == EffectType::Compressor) m_params.compressor.threshold = threshold;
+}
+
+void AudioEffect::setRatio(float ratio) {
+    if (m_type == EffectType::Compressor) m_params.compressor.ratio = std::max(1.0f, ratio);
+}
+
+void AudioEffect::setAttack(float attack) {
+    if (m_type == EffectType::Compressor) m_params.compressor.attack = std::max(0.001f, attack);
+}
+
+void AudioEffect::setRelease(float release) {
+    if (m_type == EffectType::Compressor) m_params.compressor.release = std::max(0.001f, release);
+}
+
+void AudioEffect::setMakeupGain(float gain) {
+    if (m_type == EffectType::Compressor) m_params.compressor.makeupGain = gain;
 }
 
 void AudioEffect::setWetDryMix(float mix) {
@@ -136,16 +231,31 @@ bool AudioEffect::isEnabled() const {
 
 std::string AudioEffect::getTypeName() const {
     switch (m_type) {
-        case EffectType::Reverb:     return "Reverb";
-        case EffectType::Echo:       return "Echo";
-        case EffectType::Flanger:    return "Flanger";
-        case EffectType::Chorus:     return "Chorus";
-        case EffectType::Distortion: return "Distortion";
-        case EffectType::LowPass:    return "LowPass";
-        case EffectType::HighPass:   return "HighPass";
-        case EffectType::PitchShift: return "PitchShift";
+        case EffectType::Reverb:            return "Reverb";
+        case EffectType::Echo:              return "Echo";
+        case EffectType::Flanger:           return "Flanger";
+        case EffectType::Chorus:            return "Chorus";
+        case EffectType::Distortion:        return "Distortion";
+        case EffectType::LowPass:           return "LowPass";
+        case EffectType::HighPass:          return "HighPass";
+        case EffectType::PitchShift:        return "PitchShift";
+        case EffectType::ConvolutionReverb: return "ConvolutionReverb";
+        case EffectType::ParametricEQ:      return "ParametricEQ";
+        case EffectType::Compressor:        return "Compressor";
     }
     return "Unknown";
+}
+
+void AudioEffect::updateCompressorEnvelope(float& envelope, float input, float sampleRate, float attack, float release) {
+    float absInput = std::abs(input);
+    float attackCoeff = std::exp(-1.0f / (sampleRate * attack));
+    float releaseCoeff = std::exp(-1.0f / (sampleRate * release));
+
+    if (absInput > envelope) {
+        envelope = attackCoeff * (envelope - absInput) + absInput;
+    } else {
+        envelope = releaseCoeff * (envelope - absInput) + absInput;
+    }
 }
 
 void AudioEffect::processReverb(std::vector<std::int16_t>& samples,
@@ -277,6 +387,147 @@ void AudioEffect::processPitchShift(std::vector<std::int16_t>& samples,
         output[i] = static_cast<std::int16_t>(std::clamp(s, -32768.f, 32767.f));
     }
     samples = output;
+}
+
+void AudioEffect::processConvolutionReverb(std::vector<std::int16_t>& samples,
+                                            unsigned int sampleRate, unsigned int channels) {
+    if (m_impulseResponse.getSampleCount() == 0) return;
+
+    const std::int16_t* irSamples = m_impulseResponse.getSamples();
+    std::size_t irLen = m_impulseResponse.getSampleCount();
+    unsigned int irChannels = m_impulseResponse.getChannelCount();
+
+    std::vector<std::int16_t> output(samples.size(), 0);
+
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        for (std::size_t j = 0; j < irLen && (i + j) < samples.size(); ++j) {
+            float irSample = static_cast<float>(irSamples[j * irChannels]) / 32768.0f;
+            float inputSample = static_cast<float>(samples[i]) / 32768.0f;
+            output[i + j] += static_cast<std::int16_t>(
+                std::clamp(inputSample * irSample * 32768.0f * m_params.convolution.irGain, -32768.f, 32767.f)
+            );
+        }
+    }
+
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        float dry = static_cast<float>(samples[i]) * (1.0f - m_params.convolution.wetMix);
+        float wet = static_cast<float>(output[i]) * m_params.convolution.wetMix;
+        samples[i] = static_cast<std::int16_t>(std::clamp(dry + wet, -32768.f, 32767.f));
+    }
+}
+
+void AudioEffect::processParametricEQ(std::vector<std::int16_t>& samples,
+                                       unsigned int sampleRate, unsigned int channels) {
+    if (m_params.eq.bands.empty()) return;
+
+    std::vector<double> dbuf(samples.size());
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        dbuf[i] = static_cast<double>(samples[i]) / 32768.0;
+    }
+
+    for (const auto& band : m_params.eq.bands) {
+        double w0 = 2.0 * 3.14159265358979323846 * band.frequency / sampleRate;
+        double alpha = std::sin(w0) / (2.0 * band.Q);
+        double A = std::pow(10.0, band.gain / 40.0);
+        double cosW0 = std::cos(w0);
+
+        double b0, b1, b2, a0, a1, a2;
+
+        switch (band.type) {
+            case EQBand::BandType::LowShelf: {
+                double sqrtA = std::sqrt(A);
+                a0 = (A + 1.0) + (A - 1.0) * cosW0 + 2.0 * sqrtA * alpha;
+                b0 = A * ((A + 1.0) - (A - 1.0) * cosW0 + 2.0 * sqrtA * alpha);
+                b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosW0);
+                b2 = A * ((A + 1.0) - (A - 1.0) * cosW0 - 2.0 * sqrtA * alpha);
+                a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosW0);
+                a2 = (A + 1.0) + (A - 1.0) * cosW0 - 2.0 * sqrtA * alpha;
+                break;
+            }
+            case EQBand::BandType::HighShelf: {
+                double sqrtA = std::sqrt(A);
+                a0 = (A + 1.0) - (A - 1.0) * cosW0 + 2.0 * sqrtA * alpha;
+                b0 = A * ((A + 1.0) + (A - 1.0) * cosW0 + 2.0 * sqrtA * alpha);
+                b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cosW0);
+                b2 = A * ((A + 1.0) + (A - 1.0) * cosW0 - 2.0 * sqrtA * alpha);
+                a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cosW0);
+                a2 = (A + 1.0) - (A - 1.0) * cosW0 - 2.0 * sqrtA * alpha;
+                break;
+            }
+            case EQBand::BandType::Peaking: {
+                a0 = 1.0 + alpha / A;
+                b0 = 1.0 + alpha * A;
+                b1 = -2.0 * cosW0;
+                b2 = 1.0 - alpha * A;
+                a1 = -2.0 * cosW0;
+                a2 = 1.0 - alpha / A;
+                break;
+            }
+            case EQBand::BandType::BandPass: {
+                a0 = 1.0 + alpha;
+                b0 = alpha;
+                b1 = 0.0;
+                b2 = -alpha;
+                a1 = -2.0 * cosW0;
+                a2 = 1.0 - alpha;
+                break;
+            }
+            case EQBand::BandType::Notch: {
+                a0 = 1.0 + alpha;
+                b0 = 1.0;
+                b1 = -2.0 * cosW0;
+                b2 = 1.0;
+                a1 = -2.0 * cosW0;
+                a2 = 1.0 - alpha;
+                break;
+            }
+        }
+
+        double invA0 = 1.0 / a0;
+        double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+
+        for (std::size_t i = 0; i < dbuf.size(); ++i) {
+            double x0 = dbuf[i];
+            double y0 = (b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) * invA0;
+            dbuf[i] = y0;
+            x2 = x1; x1 = x0;
+            y2 = y1; y1 = y0;
+        }
+    }
+
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        samples[i] = static_cast<std::int16_t>(std::clamp(dbuf[i] * 32768.0, -32768.0, 32767.0));
+    }
+}
+
+void AudioEffect::processCompressor(std::vector<std::int16_t>& samples,
+                                     unsigned int sampleRate, unsigned int channels) {
+    float threshold = m_params.compressor.threshold;
+    float ratio = m_params.compressor.ratio;
+    float attack = m_params.compressor.attack;
+    float release = m_params.compressor.release;
+    float makeupGain = m_params.compressor.makeupGain;
+
+    float thresholdLinear = std::pow(10.0f, threshold / 20.0f);
+    float slope = 1.0f / ratio;
+
+    float envelope = 0.0f;
+
+    for (auto& sample : samples) {
+        float input = static_cast<float>(sample) / 32768.0f;
+        updateCompressorEnvelope(envelope, input, static_cast<float>(sampleRate), attack, release);
+
+        float gainReduction = 1.0f;
+        if (envelope > thresholdLinear) {
+            float envDB = 20.0f * std::log10(envelope);
+            float targetDB = threshold + (envDB - threshold) * slope;
+            float targetLinear = std::pow(10.0f, targetDB / 20.0f);
+            gainReduction = targetLinear / envelope;
+        }
+
+        float output = input * gainReduction * std::pow(10.0f, makeupGain / 20.0f);
+        sample = static_cast<std::int16_t>(std::clamp(output * 32768.0f, -32768.f, 32767.f));
+    }
 }
 
 void DSPChain::addEffect(std::shared_ptr<AudioEffect> effect) {
