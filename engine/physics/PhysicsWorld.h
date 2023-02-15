@@ -4,6 +4,7 @@
 #include <functional>
 #include <unordered_map>
 #include <set>
+#include <cstdint>
 #include "core/Types.h"
 #include "math/Vector2.h"
 #include "Broadphase.h"
@@ -23,6 +24,45 @@ struct CollisionEvent {
     CollisionEvent() : bodyA(nullptr), bodyB(nullptr) {}
 };
 
+struct TriggerEvent {
+    RigidBody* triggerBody;
+    RigidBody* otherBody;
+    bool entered;
+
+    TriggerEvent() : triggerBody(nullptr), otherBody(nullptr), entered(false) {}
+};
+
+enum class DebugDrawMode {
+    None,
+    WireframeShapes,
+    ContactPoints,
+    Normals,
+    CollisionVolumes,
+    All
+};
+
+struct RaycastResult {
+    bool hit;
+    Vector2f point;
+    Vector2f normal;
+    f32 distance;
+    RigidBody* body;
+    Collider* collider;
+
+    RaycastResult() : hit(false), distance(0), body(nullptr), collider(nullptr) {}
+};
+
+struct CircleCastResult {
+    bool hit;
+    Vector2f point;
+    Vector2f normal;
+    f32 distance;
+    RigidBody* body;
+    Collider* collider;
+
+    CircleCastResult() : hit(false), distance(0), body(nullptr), collider(nullptr) {}
+};
+
 class PhysicsWorld {
 public:
     std::vector<RigidBody*> bodies;
@@ -37,7 +77,12 @@ public:
     std::function<void(RigidBody*, RigidBody*, const CollisionInfo&)> onCollisionStay;
     std::function<void(RigidBody*, RigidBody*)> onCollisionExit;
 
+    std::function<void(RigidBody*, RigidBody*)> onTriggerEnter;
+    std::function<void(RigidBody*, RigidBody*)> onTriggerStay;
+    std::function<void(RigidBody*, RigidBody*)> onTriggerExit;
+
     bool debugDraw;
+    DebugDrawMode debugDrawMode;
     f32 fixedTimestep;
     f32 accumulator;
     i32 velocityIterations;
@@ -64,6 +109,20 @@ public:
     void setGravity(const Vector2f& g) { gravity = g; }
     Vector2f getGravity() const { return gravity; }
 
+    RaycastResult raycast(const Vector2f& origin, const Vector2f& direction, f32 maxDistance);
+    std::vector<RaycastResult> raycastAll(const Vector2f& origin, const Vector2f& direction, f32 maxDistance);
+    CircleCastResult circleCast(const Vector2f& origin, f32 radius, const Vector2f& direction, f32 maxDistance);
+
+    void setCCDEnabled(RigidBody* body, bool enabled);
+    bool isCCDEnabled(RigidBody* body) const;
+
+    void setDebugDrawMode(DebugDrawMode mode);
+    DebugDrawMode getDebugDrawMode() const;
+    void renderDebug();
+
+    std::vector<TriggerEvent> getTriggerEvents() const;
+    void clearTriggerEvents();
+
 private:
     void integrateForces(f32 dt);
     void broadphaseDetection();
@@ -75,6 +134,12 @@ private:
     void applyDamping(f32 dt);
     void updateJoints(f32 dt);
     void detectEvents(const std::vector<CollisionInfo>& collisions);
+    void detectTriggerEvents(const std::vector<ColliderPair>& pairs);
+    void performCCDSweeps(f32 dt);
+
+    std::unordered_map<RigidBody*, bool> m_ccdEnabled;
+    std::vector<TriggerEvent> m_triggerEvents;
+    DebugDrawMode m_debugDrawMode = DebugDrawMode::None;
 };
 
 } // namespace nebula
