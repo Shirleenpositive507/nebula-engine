@@ -12,6 +12,21 @@ enum class BodyType {
     Kinematic
 };
 
+struct BuoyancyParams {
+    float fluidDensity;
+    float fluidLinearDrag;
+    float fluidAngularDrag;
+    Vector2f fluidVelocity;
+    float fluidHeight;
+
+    BuoyancyParams()
+        : fluidDensity(1000.0f)
+        , fluidLinearDrag(5.0f)
+        , fluidAngularDrag(1.0f)
+        , fluidVelocity(0, 0)
+        , fluidHeight(0.0f) {}
+};
+
 class RigidBody {
 public:
     BodyType type;
@@ -33,6 +48,15 @@ public:
     bool fixedRotation;
     Collider* collider;
 
+    bool asleep;
+    f32 sleepThreshold;
+    f32 activationEnergy;
+    bool freezePositionX;
+    bool freezePositionY;
+    bool freezeRotation;
+    f32 gravityScale;
+    BuoyancyParams buoyancy;
+
     RigidBody()
         : type(BodyType::Dynamic)
         , mass(1.0f), inverseMass(1.0f)
@@ -44,12 +68,20 @@ public:
         , restitution(0.5f)
         , linearDamping(0.0f), angularDamping(0.0f)
         , fixedRotation(false)
-        , collider(nullptr) {}
+        , collider(nullptr)
+        , asleep(false)
+        , sleepThreshold(0.01f)
+        , activationEnergy(0.05f)
+        , freezePositionX(false)
+        , freezePositionY(false)
+        , freezeRotation(false)
+        , gravityScale(1.0f) {}
 
     void applyForce(const Vector2f& f) { force += f; }
     void applyImpulse(const Vector2f& impulse, const Vector2f& contactPoint);
     void applyTorque(f32 t) { torque += t; }
     void applyForceAtPoint(const Vector2f& f, const Vector2f& point);
+    void applyBuoyancyForce(const BuoyancyParams& params);
 
     void setMass(f32 m) {
         mass = m;
@@ -79,6 +111,15 @@ public:
         f32 angularKE = 0.5f * inertia * angularVelocity * angularVelocity;
         return linearKE + angularKE;
     }
+
+    bool canSleep() const;
+    void trySleep();
+    void wakeUp();
+
+    void setFreezePositionX(bool freeze) { freezePositionX = freeze; }
+    void setFreezePositionY(bool freeze) { freezePositionY = freeze; }
+    void setFreezeRotation(bool freeze) { freezeRotation = freeze; }
+    void setGravityScale(f32 scale) { gravityScale = scale; }
 
     void updateInertia();
 
