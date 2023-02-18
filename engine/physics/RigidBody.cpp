@@ -6,12 +6,44 @@ void RigidBody::applyImpulse(const Vector2f& impulse, const Vector2f& contactPoi
     linearVelocity += impulse * inverseMass;
     Vector2f r = contactPoint - position;
     angularVelocity += inverseInertia * r.cross(impulse);
+    wakeUp();
 }
 
 void RigidBody::applyForceAtPoint(const Vector2f& f, const Vector2f& point) {
     force += f;
     Vector2f r = point - position;
     torque += r.cross(f);
+    wakeUp();
+}
+
+void RigidBody::applyBuoyancyForce(const BuoyancyParams& params) {
+    if (!collider) return;
+
+    Rectf bounds = collider->getBounds();
+    Vector2f worldPos = position + bounds.getCenter();
+    f32 bodyBottom = position.y + bounds.getMaxY();
+    f32 bodyTop = position.y + bounds.getMinY();
+
+    if (bodyBottom <= params.fluidHeight) return;
+
+    f32 submergedHeight = bodyBottom - params.fluidHeight;
+    if (submergedHeight > bodyBottom - bodyTop) {
+        submergedHeight = bodyBottom - bodyTop;
+    }
+
+    f32 submergedFraction = submergedHeight / (bodyBottom - bodyTop);
+    if (submergedFraction > 1.0f) submergedFraction = 1.0f;
+    if (submergedFraction < 0.0f) submergedFraction = 0.0f;
+
+    f32 displacedVolume = mass / params.fluidDensity * submergedFraction;
+    Vector2f buoyancyForce(0, params.fluidDensity * displacedVolume * 9.81f);
+
+    force += buoyancyForce;
+
+    Vector2f dragForce = (params.fluidVelocity - linearVelocity) * params.fluidLinearDrag * submergedFraction;
+    force += dragForce;
+
+    torque += -angularVelocity * params.fluidAngularDrag * submergedFraction;
 }
 
 void RigidBody::setMassFromDensity(f32 density) {
@@ -81,18 +113,63 @@ void RigidBody::updateInertia() {
     inverseInertia = (inertia > 0.0f) ? 1.0f / inertia : 0.0f;
 }
 
+bool RigidBody::canSleep() const {
+    if (type != BodyType::Dynamic) return true;
+    f32 speedSq = linearVelocity.lengthSquared();
+    f32 angSpeed = std::abs(angularVelocity);
+    return (speedSq < sleepThreshold * sleepThreshold) && (angSpeed < sleepThreshold);
+}
+
+void RigidBody::trySleep() {
+    if (type == BodyType::Static || type == BodyType::Kinematic) {
+        asleep = true;
+        return;
+    }
+    if (canSleep()) {
+        asleep = true;
+        linearVelocity = Vector2f(0, 0);
+        angularVelocity = 0.0f;
+    }
+}
+
+void RigidBody::wakeUp() {
+    if (asleep) {
+        asleep = false;
+    }
+}
+
 void RigidBody::integrateForces(f32 dt) {
     if (type != BodyType::Dynamic) return;
+
+    if (asleep) {
+        linearVelocity = Vector2f(0, 0);
+        angularVelocity = 0.0f;
+        return;
+    }
+
     linearVelocity += force * inverseMass * dt;
     angularVelocity += torque * inverseInertia * dt;
+
     if (linearDamping > 0.0f) linearVelocity *= std::max(1.0f - linearDamping * dt, 0.0f);
     if (angularDamping > 0.0f) angularVelocity *= std::max(1.0f - angularDamping * dt, 0.0f);
 }
 
 void RigidBody::integrateVelocities(f32 dt) {
     if (type != BodyType::Dynamic) return;
-    position += linearVelocity * dt;
-    rotation += angularVelocity * dt;
+    if (asleep) return;
+
+    Vector2f displacement = linearVelocity * dt;
+    if (freezePositionX) displacement.x = 0;
+    if (freezePositionY) displacement.y = 0;
+    position += displacement;
+
+    if (!freezeRotation) {
+        rotation += angularVelocity * dt;
+    }
+
+    if (getKineticEnergy() < activationEnergy) {
+        trySleep();
+    }
 }
 
 } // namespace nebula
