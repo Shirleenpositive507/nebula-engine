@@ -173,6 +173,10 @@ struct CompoundCollider : public Collider {
     void clearSubColliders() {
         subColliders.clear();
     }
+
+    static CompoundCollider* createFromColliders(const std::vector<Collider*>& colliders);
+    void transformSubColliders(const Vector2f& parentPos, f32 parentRot);
+    void removeOverlappingSubColliders();
 };
 
 } // namespace nebula
