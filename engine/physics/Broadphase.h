@@ -123,6 +123,7 @@ private:
     void updateDBVT(RigidBody* body);
     void queryDBVT(const Rectf& rect, std::vector<ColliderPair>& pairs) const;
     void queryDBVTRecursive(DBVTNode* node, const Rectf& rect, std::vector<ColliderPair>& pairs) const;
+    void collectLeaves(DBVTNode* node, std::vector<RigidBody*>& leaves) const;
     void syncDBVTToGrid();
     i32 getHeight(DBVTNode* node) const;
     i32 getBalance(DBVTNode* node) const;
