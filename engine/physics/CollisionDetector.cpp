@@ -1,8 +1,18 @@
 #include "CollisionDetector.h"
 #include <limits>
 #include <algorithm>
+#include <set>
 
 namespace nebula {
+
+const CollisionGroupMask CollisionGroupMask::Default(0x0001, 0xFFFF);
+const CollisionGroupMask CollisionGroupMask::Static(0x0002, 0xFFFF);
+const CollisionGroupMask CollisionGroupMask::Dynamic(0x0004, 0xFFFF);
+const CollisionGroupMask CollisionGroupMask::Trigger(0x0008, 0xFFFF);
+const CollisionGroupMask CollisionGroupMask::Projectile(0x0010, 0xFFFF);
+const CollisionGroupMask CollisionGroupMask::Player(0x0020, 0xFFFF);
+const CollisionGroupMask CollisionGroupMask::Enemy(0x0040, 0xFFFF);
+const CollisionGroupMask CollisionGroupMask::Environment(0x0080, 0xFFFF);
 
 std::vector<CollisionInfo> CollisionDetector::detectCollisions(const std::vector<ColliderPair>& pairs) {
     std::vector<CollisionInfo> results;
@@ -10,6 +20,21 @@ std::vector<CollisionInfo> CollisionDetector::detectCollisions(const std::vector
         RigidBody* a = pair.bodyA;
         RigidBody* b = pair.bodyB;
         if (!a->collider || !b->collider) continue;
+
+        if (!canBodiesCollide(a, b)) continue;
+
+        bool aTriggerOnly = false;
+        bool bTriggerOnly = false;
+        {
+            auto it = m_triggerOnly.find(a);
+            if (it != m_triggerOnly.end()) aTriggerOnly = it->second;
+        }
+        {
+            auto it = m_triggerOnly.find(b);
+            if (it != m_triggerOnly.end()) bTriggerOnly = it->second;
+        }
+
+        if (aTriggerOnly || bTriggerOnly) continue;
 
         CollisionInfo info;
         ColliderType typeA = a->collider->getType();
@@ -67,9 +92,101 @@ std::vector<CollisionInfo> CollisionDetector::detectCollisions(const std::vector
 
         if (info.colliding) {
             results.push_back(info);
+
+            BufferedCollisionEvent evt;
+            evt.bodyA = a;
+            evt.bodyB = b;
+            evt.info = info;
+            evt.entered = true;
+            evt.frameDelay = 1;
+            bufferCollisionEvent(evt);
         }
     }
     return results;
+}
+
+void CollisionDetector::setLayerCollision(u32 layerA, u32 layerB, bool canCollide) {
+    collisionMatrix.setLayerCollision(layerA, layerB, canCollide);
+}
+
+void CollisionDetector::setBodyCollisionGroup(RigidBody* body, u32 group, u32 mask) {
+    m_collisionGroups[body] = CollisionGroupMask(group, mask);
+}
+
+bool CollisionDetector::canBodiesCollide(RigidBody* a, RigidBody* b) const {
+    if (a == b) return false;
+    if (a->isStatic() && b->isStatic()) return false;
+
+    auto itA = m_collisionGroups.find(a);
+    auto itB = m_collisionGroups.find(b);
+
+    if (itA != m_collisionGroups.end() && itB != m_collisionGroups.end()) {
+        if (!itA->second.canCollideWith(itB->second)) return false;
+    }
+
+    return true;
+}
+
+void CollisionDetector::setTriggerOnly(RigidBody* body, bool triggerOnly) {
+    m_triggerOnly[body] = triggerOnly;
+    if (body->collider) {
+        body->collider->setTrigger(triggerOnly);
+    }
+}
+
+bool CollisionDetector::isTriggerOnly(RigidBody* body) const {
+    auto it = m_triggerOnly.find(body);
+    if (it != m_triggerOnly.end()) {
+        return it->second;
+    }
+    return false;
+}
+
+void CollisionDetector::bufferCollisionEvent(const BufferedCollisionEvent& event) {
+    m_eventBuffer.push(event);
+}
+
+std::vector<BufferedCollisionEvent> CollisionDetector::getBufferedEvents() {
+    std::vector<BufferedCollisionEvent> ready;
+    std::queue<BufferedCollisionEvent> remaining;
+
+    while (!m_eventBuffer.empty()) {
+        BufferedCollisionEvent evt = m_eventBuffer.front();
+        m_eventBuffer.pop();
+        evt.frameDelay--;
+        if (evt.frameDelay <= 0) {
+            ready.push_back(evt);
+        } else {
+            remaining.push(evt);
+        }
+    }
+
+    m_eventBuffer = remaining;
+    return ready;
+}
+
+void CollisionDetector::clearBufferedEvents() {
+    while (!m_eventBuffer.empty()) {
+        m_eventBuffer.pop();
+    }
+    m_previousFrameEvents.clear();
+}
+
+void CollisionDetector::updateBufferedEvents() {
+    auto events = getBufferedEvents();
+
+    for (const auto& evt : events) {
+        bool wasInPrevious = false;
+        for (const auto& prev : m_previousFrameEvents) {
+            if ((prev.bodyA == evt.bodyA && prev.bodyB == evt.bodyB) ||
+                (prev.bodyA == evt.bodyB && prev.bodyB == evt.bodyA)) {
+                wasInPrevious = true;
+                break;
+            }
+        }
+    }
+
+    m_previousFrameEvents = events;
 }
 
 bool CollisionDetector::rayAABBIntersect(const Vector2f& origin, const Vector2f& dir,
@@ -132,14 +249,18 @@ std::vector<RaycastHit> CollisionDetector::raycastAll(const Vector2f& origin,
     );
 
     std::vector<ColliderPair> candidates = broadphase.queryRange(rayRect);
-    std::set<RigidBody*> bodies;
+    std::set<RigidBody*> hitBodies;
     for (const auto& pair : candidates) {
-        bodies.insert(pair.bodyA);
-        bodies.insert(pair.bodyB);
+        hitBodies.insert(pair.bodyA);
+        hitBodies.insert(pair.bodyB);
     }
 
-    for (auto* body : bodies) {
+    for (auto* body : hitBodies) {
         if (!body->collider) continue;
+
+        auto groupIt = m_collisionGroups.find(body);
+        if (groupIt != m_collisionGroups.end() && groupIt->second.group == 0) continue;
+
         f32 t;
         bool hit = false;
         Vector2f hitPoint, hitNormal;
@@ -218,8 +339,20 @@ std::vector<RaycastHit> CollisionDetector::raycastAll(const Vector2f& origin,
 
 RaycastHit CollisionDetector::raycastFiltered(const Vector2f& origin, const Vector2f& direction,
                                                 f32 maxDistance, u32 layerMask) {
-    (void)layerMask;
-    return raycast(origin, direction, maxDistance);
+    std::vector<RaycastHit> allHits = raycastAll(origin, direction, maxDistance);
+    for (auto& hit : allHits) {
+        if (hit.rigidBody) {
+            auto groupIt = m_collisionGroups.find(hit.rigidBody);
+            if (groupIt != m_collisionGroups.end()) {
+                if ((groupIt->second.group & layerMask) != 0) {
+                    return hit;
+                }
+            } else {
+                return hit;
+            }
+        }
+    }
+    return RaycastHit();
 }
 
 RaycastHit CollisionDetector::circleCast(const Vector2f& origin, f32 radius,
@@ -234,17 +367,17 @@ RaycastHit CollisionDetector::circleCast(const Vector2f& origin, f32 radius,
     if (dir.y < 0) sweepRect.top += dir.y * maxDistance;
 
     std::vector<ColliderPair> candidates = broadphase.queryRange(sweepRect);
-    std::set<RigidBody*> bodies;
+    std::set<RigidBody*> hitBodies;
     for (const auto& pair : candidates) {
-        bodies.insert(pair.bodyA);
-        bodies.insert(pair.bodyB);
+        hitBodies.insert(pair.bodyA);
+        hitBodies.insert(pair.bodyB);
     }
 
     RaycastHit closest;
     closest.distance = maxDistance;
     bool found = false;
 
-    for (auto* body : bodies) {
+    for (auto* body : hitBodies) {
         if (!body->collider) continue;
         if (body->collider->getType() != ColliderType::Circle) continue;
         auto* circle = static_cast<CircleCollider*>(body->collider);
@@ -296,6 +429,8 @@ RaycastHit CollisionDetector::ccdRaycast(RigidBody* body, const Vector2f& origin
     for (const auto& pair : candidates) {
         RigidBody* other = (pair.bodyA == body) ? pair.bodyB : pair.bodyA;
         if (!other->collider) continue;
+
+        if (!canBodiesCollide(body, other)) continue;
 
         RaycastHit hit = raycast(origin, vel.normalized(), maxDistance);
         if (hit.rigidBody == body) continue;
