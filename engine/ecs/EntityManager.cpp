@@ -170,6 +170,141 @@ void EntityManager::onStructureChange() {
     }
 }
 
+Entity EntityManager::cloneEntity(Entity entity) {
+    auto it = mEntities.find(entity.id);
+    if (it == mEntities.end()) return NULL_ENTITY;
+    if (it->second.version != entity.version) return NULL_ENTITY;
+
+    Entity clone = createEntity();
+    EntityData& srcData = it->second;
+
+    for (auto type : srcData.archetype->getComponentTypes()) {
+        auto poolIt = mPools.find(std::type_index(typeid(Component)));
+        if (poolIt != mPools.end()) {
+            void* comp = poolIt->second->get(
+                reinterpret_cast<void*>(static_cast<uintptr_t>(entity.id)));
+            if (comp) {
+                auto clonePoolIt = mPools.find(std::type_index(typeid(Component)));
+                if (clonePoolIt != mPools.end()) {
+                    clonePoolIt->second->create(
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(clone.id)));
+                }
+            }
+        }
+    }
+
+    auto tagIt = mEntityTags.find(entity.id);
+    if (tagIt != mEntityTags.end()) {
+        for (const auto& tag : tagIt->second) {
+            tagEntity(clone, tag);
+        }
+    }
+
+    return clone;
+}
+
+void EntityManager::tagEntity(Entity entity, const std::string& tag) {
+    auto it = mEntities.find(entity.id);
+    if (it == mEntities.end()) return;
+    if (it->second.version != entity.version) return;
+
+    auto& tags = mEntityTags[entity.id];
+    if (std::find(tags.begin(), tags.end(), tag) == tags.end()) {
+        tags.push_back(tag);
+        mTagIndex[tag].push_back(entity);
+    }
+}
+
+void EntityManager::untagEntity(Entity entity, const std::string& tag) {
+    auto it = mEntities.find(entity.id);
+    if (it == mEntities.end()) return;
+
+    auto tagIt = mEntityTags.find(entity.id);
+    if (tagIt == mEntityTags.end()) return;
+
+    auto& tags = tagIt->second;
+    auto tagPos = std::find(tags.begin(), tags.end(), tag);
+    if (tagPos != tags.end()) {
+        tags.erase(tagPos);
+        auto& idx = mTagIndex[tag];
+        idx.erase(std::remove(idx.begin(), idx.end(), entity), idx.end());
+    }
+}
+
+bool EntityManager::hasTag(Entity entity, const std::string& tag) const {
+    auto tagIt = mEntityTags.find(entity.id);
+    if (tagIt == mEntityTags.end()) return false;
+    return std::find(tagIt->second.begin(), tagIt->second.end(), tag) != tagIt->second.end();
+}
+
+std::vector<Entity> EntityManager::getEntitiesWithTag(const std::string& tag) const {
+    auto it = mTagIndex.find(tag);
+    if (it == mTagIndex.end()) return {};
+    return it->second;
+}
+
+std::vector<std::string> EntityManager::getEntityTags(Entity entity) const {
+    auto it = mEntityTags.find(entity.id);
+    if (it == mEntityTags.end()) return {};
+    return it->second;
+}
+
+void EntityManager::setEntityParent(Entity entity, Entity parent) {
+    auto it = mEntities.find(entity.id);
+    if (it == mEntities.end()) return;
+
+    EntityHierarchy& childHier = mHierarchy[entity.id];
+    if (childHier.parent.isValid()) {
+        auto& oldParentChildren = mHierarchy[childHier.parent.id].children;
+        oldParentChildren.erase(
+            std::remove(oldParentChildren.begin(), oldParentChildren.end(), entity),
+            oldParentChildren.end());
+    }
+
+    childHier.parent = parent;
+
+    if (parent.isValid()) {
+        EntityHierarchy& parentHier = mHierarchy[parent.id];
+        if (std::find(parentHier.children.begin(), parentHier.children.end(), entity)
+            == parentHier.children.end()) {
+            parentHier.children.push_back(entity);
+        }
+    }
+}
+
+Entity EntityManager::getEntityParent(Entity entity) const {
+    auto it = mHierarchy.find(entity.id);
+    if (it == mHierarchy.end()) return NULL_ENTITY;
+    return it->second.parent;
+}
+
+std::vector<Entity> EntityManager::getEntityChildren(Entity entity) const {
+    auto it = mHierarchy.find(entity.id);
+    if (it == mHierarchy.end()) return {};
+    return it->second.children;
+}
+
+void EntityManager::queryEntityGroup(const EntityGroup& group,
+    std::function<void(Entity)> callback)
+{
+    for (const auto& entity : mActiveEntities) {
+        auto it = mEntities.find(entity.id);
+        if (it == mEntities.end()) continue;
+
+        bool matches = true;
+        for (auto type : group.requiredComponents) {
+            if (!it->second.archetype->hasComponent(type)) {
+                matches = false;
+                break;
+            }
+        }
+
+        if (matches) {
+            callback(entity);
+        }
+    }
+}
+
 void EntityManager::queryEntities(const Query& query,
     std::function<void(Entity)> callback)
 {
