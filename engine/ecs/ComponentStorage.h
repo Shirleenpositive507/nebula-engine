@@ -150,6 +150,85 @@ public:
         }
     }
 
+    bool serialize(const std::string& filepath) const {
+        FILE* file = nullptr;
+        fopen_s(&file, filepath.c_str(), "wb");
+        if (!file) return false;
+
+        fwrite(&mComponentCount, sizeof(mComponentCount), 1, file);
+        for (u32 i = 0; i < mComponentCount; ++i) {
+            fwrite(&mDense[i], sizeof(u32), 1, file);
+            fwrite(&mData[i], sizeof(T), 1, file);
+        }
+        fclose(file);
+        return true;
+    }
+
+    bool deserialize(const std::string& filepath) {
+        FILE* file = nullptr;
+        fopen_s(&file, filepath.c_str(), "rb");
+        if (!file) return false;
+
+        clear();
+        u32 count;
+        fread(&count, sizeof(count), 1, file);
+        for (u32 i = 0; i < count; ++i) {
+            u32 entityId;
+            fread(&entityId, sizeof(entityId), 1, file);
+            T comp;
+            fread(&comp, sizeof(T), 1, file);
+            add(entityId, comp);
+        }
+        fclose(file);
+        return true;
+    }
+
+    void recycleRemovedSlot(u32 entity) {
+        if (mSparse[entity] != UINT32_MAX) {
+            remove(entity);
+        }
+    }
+
+    u32 getRemovedCount() const {
+        u32 removed = 0;
+        for (u32 i = 0; i < mCapacity; ++i) {
+            if (mSparse[i] == UINT32_MAX) removed++;
+        }
+        return removed;
+    }
+
+    class Iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = T;
+        using difference_type = std::ptrdiff_t;
+        using pointer = T*;
+        using reference = T&;
+
+        Iterator(T* data, u32* dense, u32 index) : mData(data), mDense(dense), mIndex(index) {}
+
+        reference operator*() const { return mData[mIndex]; }
+        pointer operator->() { return &mData[mIndex]; }
+        Iterator& operator++() { ++mIndex; return *this; }
+        Iterator operator++(int) { Iterator tmp = *this; ++(*this); return tmp; }
+        bool operator==(const Iterator& other) const { return mIndex == other.mIndex; }
+        bool operator!=(const Iterator& other) const { return mIndex != other.mIndex; }
+
+    private:
+        T* mData;
+        u32* mDense;
+        u32 mIndex;
+    };
+
+    Iterator begin() { return Iterator(mData, mDense.data(), 0); }
+    Iterator end() { return Iterator(mData, mDense.data(), mComponentCount); }
+
+    void copyComponent(u32 srcEntity, u32 dstEntity, ComponentPool<T>& dstPool) {
+        if (!has(srcEntity)) return;
+        T& srcComp = mData[mSparse[srcEntity]];
+        dstPool.add(dstEntity, srcComp);
+    }
+
 private:
     T* mData;
     std::vector<u32> mSparse;
