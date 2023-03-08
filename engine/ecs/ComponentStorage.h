@@ -8,6 +8,17 @@
 
 namespace nebula {
 
+struct ComponentStorageHeader {
+    u32 magic;
+    u32 version;
+    u32 componentTypeCount;
+    u32 dataSize;
+    u64 timestamp;
+};
+
+bool serializeBinary(const ComponentStorageHeader& header, const std::vector<u8>& data, const std::string& path);
+bool deserializeBinary(const std::string& path, ComponentStorageHeader& header, std::vector<u8>& data);
+
 template <typename T>
 class ComponentPool : public IComponentPool {
     static_assert(std::is_base_of_v<Component, T>, "T must derive from Component");
