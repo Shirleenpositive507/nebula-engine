@@ -73,8 +73,68 @@ void Query::each(std::function<void(EntityHandle)> callback) const {
 }
 
 void Query::invalidate() {
+    if (mValid && mCacheEnabled && !mCachedResults.empty()) {
+        mChangeInfo.removed = mCachedResults;
+    }
     mValid = false;
     mCachedResults.clear();
+    mChangeInfo.added.clear();
+}
+
+void Query::resetChangeTracking() {
+    mChangeInfo.added.clear();
+    mChangeInfo.removed.clear();
+    mChangeInfo.frameNumber = mFrameNumber;
+}
+
+Query& Query::cacheResults(bool enable) {
+    mCacheEnabled = enable;
+    if (!enable) {
+        mValid = false;
+        mCachedResults.clear();
+    }
+    return *this;
+}
+
+Query& Query::orderBy(ComponentType type, SortOrder order) {
+    mOrderByType = type;
+    mOrderDirection = order;
+    return *this;
+}
+
+void Query::parallelForEach(std::function<void(Entity)> callback) const {
+    unsigned int threadCount = std::thread::hardware_concurrency();
+    if (threadCount == 0) threadCount = 4;
+
+    if (mCacheEnabled && mValid) {
+        const auto& results = mCachedResults;
+        size_t chunkSize = (results.size() + threadCount - 1) / threadCount;
+        std::vector<std::thread> threads;
+
+        for (unsigned int t = 0; t < threadCount; ++t) {
+            size_t start = t * chunkSize;
+            size_t end = std::min(start + chunkSize, results.size());
+            if (start >= end) break;
+            threads.emplace_back([&results, start, end, &callback]() {
+                for (size_t i = start; i < end; ++i) {
+                    callback(results[i]);
+                }
+            });
+        }
+
+        for (auto& t : threads) {
+            t.join();
+        }
+        return;
+    }
+
+    mManager->queryEntities(*this, callback);
+}
+
+void Query::parallelForEach(std::function<void(EntityHandle)> callback) const {
+    parallelForEach([&](Entity entity) {
+        callback(EntityHandle(entity, mManager));
+    });
 }
 
 template <typename... Components>
