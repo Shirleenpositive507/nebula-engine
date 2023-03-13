@@ -2,12 +2,37 @@
 #include <bitset>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
+#include <queue>
 #include "Component.h"
 
 namespace nebula {
 
 using ComponentMask = std::bitset<MAX_COMPONENT_TYPES>;
+
+constexpr u32 CHUNK_CAPACITY = 64;
+
+struct ComponentChunk {
+    u8* data;
+    u32 entityCount;
+    u32 capacity;
+
+    ComponentChunk(u32 compSize, u32 cap = CHUNK_CAPACITY)
+        : data(static_cast<u8*>(::operator new(compSize * cap)))
+        , entityCount(0)
+        , capacity(cap) {}
+
+    ~ComponentChunk() { ::operator delete(data); }
+    ComponentChunk(const ComponentChunk&) = delete;
+    ComponentChunk& operator=(const ComponentChunk&) = delete;
+    ComponentChunk(ComponentChunk&& other) noexcept
+        : data(other.data), entityCount(other.entityCount), capacity(other.capacity) {
+        other.data = nullptr;
+        other.entityCount = 0;
+        other.capacity = 0;
+    }
+};
 
 class Archetype {
 public:
@@ -60,6 +85,16 @@ public:
     void incrementEntityCount() { mEntityCount++; }
     void decrementEntityCount() { if (mEntityCount > 0) mEntityCount--; }
 
+    u32 getChunkCount() const { return static_cast<u32>(mChunks.size()); }
+    bool hasAvailableChunkSlot() const {
+        return mChunks.empty() || mChunks.back()->entityCount < mChunks.back()->capacity;
+    }
+    void addChunk(ComponentChunk* chunk) { mChunks.push_back(chunk); }
+    const std::vector<ComponentChunk*>& getChunks() const { return mChunks; }
+
+    bool isEmpty() const { return mEntityCount == 0; }
+    void markEmpty() { mEntityCount = 0; mChunks.clear(); }
+
     bool operator==(const Archetype& other) const {
         return mMask == other.mMask;
     }
@@ -84,6 +119,7 @@ private:
     std::vector<ComponentType> mComponentTypes;
     std::unordered_map<ComponentType, i32> mComponentIndex;
     u32 mEntityCount = 0;
+    std::vector<ComponentChunk*> mChunks;
 };
 
 struct ArchetypeEdge {
@@ -98,6 +134,8 @@ public:
     Archetype* addComponent(Archetype* src, ComponentType type);
     Archetype* removeComponent(Archetype* src, ComponentType type);
     bool hasTransition(Archetype* src, Archetype* dst) const;
+    std::vector<Archetype*> findTransitionPath(Archetype* src, Archetype* dst) const;
+    void cleanupEmptyArchetypes();
     void clear();
 
 private:
