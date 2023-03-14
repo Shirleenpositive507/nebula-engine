@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <utility>
 #include <queue>
+#include <new>
 #include "Component.h"
 
 namespace nebula {

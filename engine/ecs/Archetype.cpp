@@ -1,4 +1,5 @@
 #include "Archetype.h"
+#include <algorithm>
 
 namespace nebula {
 
@@ -21,6 +22,12 @@ Archetype* ArchetypeGraph::getOrCreateArchetype(const std::vector<ComponentType>
     Archetype* ptr = arch.get();
     mArchetypes.push_back(std::move(arch));
     mArchetypeMap[mask] = ptr;
+
+    for (u32 i = 0; i < 4; ++i) {
+        auto chunk = new ComponentChunk(sizeof(ComponentType) * types.size());
+        ptr->addChunk(chunk);
+    }
+
     return ptr;
 }
 
@@ -91,6 +98,60 @@ bool ArchetypeGraph::hasTransition(Archetype* src, Archetype* dst) const {
         if (edge.target == dst) return true;
     }
     return false;
+}
+
+std::vector<Archetype*> ArchetypeGraph::findTransitionPath(Archetype* src, Archetype* dst) const {
+    if (!src || !dst) return {};
+
+    std::unordered_map<Archetype*, Archetype*> cameFrom;
+    std::queue<Archetype*> q;
+    std::unordered_set<Archetype*> visited;
+
+    q.push(src);
+    visited.insert(src);
+
+    while (!q.empty()) {
+        Archetype* current = q.front();
+        q.pop();
+
+        if (current == dst) {
+            std::vector<Archetype*> path;
+            Archetype* node = dst;
+            while (node != src) {
+                path.push_back(node);
+                node = cameFrom[node];
+            }
+            path.push_back(src);
+            std::reverse(path.begin(), path.end());
+            return path;
+        }
+
+        auto it = mTransitions.find(current);
+        if (it != mTransitions.end()) {
+            for (const auto& edge : it->second) {
+                if (!visited.count(edge.target)) {
+                    visited.insert(edge.target);
+                    cameFrom[edge.target] = current;
+                    q.push(edge.target);
+                }
+            }
+        }
+    }
+
+    return {};
+}
+
+void ArchetypeGraph::cleanupEmptyArchetypes() {
+    for (auto it = mArchetypes.begin(); it != mArchetypes.end(); ) {
+        Archetype* arch = it->get();
+        if (arch->isEmpty()) {
+            mArchetypeMap.erase(arch->getMask());
+            mTransitions.erase(arch);
+            it = mArchetypes.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void ArchetypeGraph::clear() {
