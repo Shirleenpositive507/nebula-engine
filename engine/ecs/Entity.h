@@ -7,16 +7,41 @@ namespace nebula {
 
 class EntityManager;
 
+enum class EntityFlag {
+    Dirty = 1 << 0,
+    PendingDestroy = 1 << 1,
+    Visible = 1 << 2
+};
+
+enum class EntityAccessMode {
+    Read,
+    Write,
+    Exclusive
+};
+
 struct Entity {
     u64 id;
     u32 version;
+    u32 flags;
+    u64 prefabId;
 
-    Entity() : id(0), version(0) {}
-    Entity(u64 id, u32 version) : id(id), version(version) {}
+    Entity() : id(0), version(0), flags(static_cast<u32>(EntityFlag::Visible)), prefabId(0) {}
+    Entity(u64 id, u32 version) : id(id), version(version), flags(static_cast<u32>(EntityFlag::Visible)), prefabId(0) {}
 
     u64 getId() const { return id; }
     u32 getVersion() const { return version; }
     bool isValid() const { return id != 0; }
+
+    void setFlag(EntityFlag flag) { flags |= static_cast<u32>(flag); }
+    void clearFlag(EntityFlag flag) { flags &= ~static_cast<u32>(flag); }
+    bool hasFlag(EntityFlag flag) const { return (flags & static_cast<u32>(flag)) != 0; }
+
+    bool isVisible() const { return hasFlag(EntityFlag::Visible); }
+    bool isPendingDestroy() const { return hasFlag(EntityFlag::PendingDestroy); }
+
+    void setPrefabLink(u64 prefab) { prefabId = prefab; }
+    u64 getPrefabLink() const { return prefabId; }
+    bool hasPrefabLink() const { return prefabId != 0; }
 
     bool operator==(const Entity& other) const {
         return id == other.id && version == other.version;
