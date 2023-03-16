@@ -161,6 +161,19 @@ public:
         }
     }
 
+    void setComponentEnabled(void* entity, bool enabled) override {
+        u32 e = static_cast<u32>(reinterpret_cast<uintptr_t>(entity));
+        if (has(e)) {
+            get(e)->setEnabled(enabled);
+        }
+    }
+
+    bool isComponentEnabled(void* entity) override {
+        u32 e = static_cast<u32>(reinterpret_cast<uintptr_t>(entity));
+        T* comp = get(e);
+        return comp ? comp->isEnabled() : false;
+    }
+
     bool serialize(const std::string& filepath) const {
         FILE* file = nullptr;
         fopen_s(&file, filepath.c_str(), "wb");
