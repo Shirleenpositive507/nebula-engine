@@ -9,9 +9,31 @@
 #include "engine/core/math/Transform.h"
 #include "engine/core/math/Vector3.h"
 #include "engine/core/math/Quaternion.h"
+#include "engine/core/math/BoundingBox.h"
 
 namespace engine {
 namespace scene {
+
+enum class SceneNodeFlag {
+    Static = 1 << 0,
+    Dynamic = 1 << 1,
+    Occluder = 1 << 2,
+    Occludee = 1 << 3,
+    CastShadows = 1 << 4,
+    ReceiveShadows = 1 << 5
+};
+
+struct NodeSortKey {
+    int layer;
+    uint64_t materialId;
+    float distance;
+
+    bool operator<(const NodeSortKey& other) const {
+        if (layer != other.layer) return layer < other.layer;
+        if (materialId != other.materialId) return materialId < other.materialId;
+        return distance < other.distance;
+    }
+};
 
 class SceneNode : public std::enable_shared_from_this<SceneNode> {
 public:
@@ -56,6 +78,15 @@ public:
     int getSortingOrder() const { return m_sortingOrder; }
     void setSortingOrder(int order) { m_sortingOrder = order; }
 
+    void setNodeFlags(uint32_t flags) { m_nodeFlags = flags; }
+    uint32_t getNodeFlags() const { return m_nodeFlags; }
+    void setNodeFlag(SceneNodeFlag flag) { m_nodeFlags |= static_cast<uint32_t>(flag); }
+    void clearNodeFlag(SceneNodeFlag flag) { m_nodeFlags &= ~static_cast<uint32_t>(flag); }
+    bool hasNodeFlag(SceneNodeFlag flag) const { return (m_nodeFlags & static_cast<uint32_t>(flag)) != 0; }
+
+    void setMaterialId(uint64_t id) { m_materialId = id; }
+    uint64_t getMaterialId() const { return m_materialId; }
+
     void setPosition(const Vector3& position);
     void setRotation(const Quaternion& rotation);
     void setScale(const Vector3& scale);
@@ -68,6 +99,18 @@ public:
     void setLocalTransform(const Transform& transform);
     const Transform& getWorldTransform() const { return m_worldTransform; }
     void updateWorldTransform(bool force = false);
+
+    BoundingBox getBoundingBox() const { return m_boundingBox; }
+    void setBoundingBox(const BoundingBox& box) { m_boundingBox = box; }
+    void calculateBoundingBox();
+    BoundingBox getWorldBoundingBox() const;
+
+    bool isVisible(const BoundingBox& frustum) const;
+    bool isVisible(const Vector3& cameraPosition, float viewDistance) const;
+
+    NodeSortKey getSortKey() const;
+    static void sortByLayer(std::vector<Ptr>& nodes);
+    static void sortByMaterial(std::vector<Ptr>& nodes);
 
     template<typename T>
     std::shared_ptr<T> attachComponent(std::shared_ptr<T> component) {
@@ -111,8 +154,11 @@ private:
     std::vector<Ptr> m_children;
     Transform m_localTransform;
     Transform m_worldTransform;
+    BoundingBox m_boundingBox;
     std::string m_name;
     uint32_t m_id;
+    uint32_t m_nodeFlags;
+    uint64_t m_materialId;
     bool m_enabled;
     bool m_dirty;
     int m_layer;
