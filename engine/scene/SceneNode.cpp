@@ -235,6 +235,77 @@ void SceneNode::traverseUp(const Visitor& visitor)
     }
 }
 
+void SceneNode::calculateBoundingBox()
+{
+    BoundingBox box;
+    box.min = Vector3(FLT_MAX, FLT_MAX, FLT_MAX);
+    box.max = Vector3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+
+    for (auto& child : m_children) {
+        BoundingBox childBox = child->getBoundingBox();
+        if (childBox.min.x < box.min.x) box.min.x = childBox.min.x;
+        if (childBox.min.y < box.min.y) box.min.y = childBox.min.y;
+        if (childBox.min.z < box.min.z) box.min.z = childBox.min.z;
+        if (childBox.max.x > box.max.x) box.max.x = childBox.max.x;
+        if (childBox.max.y > box.max.y) box.max.y = childBox.max.y;
+        if (childBox.max.z > box.max.z) box.max.z = childBox.max.z;
+    }
+
+    if (box.min.x == FLT_MAX) {
+        box.min = Vector3(-0.5f, -0.5f, -0.5f);
+        box.max = Vector3(0.5f, 0.5f, 0.5f);
+    }
+
+    m_boundingBox = box;
+}
+
+BoundingBox SceneNode::getWorldBoundingBox() const
+{
+    BoundingBox worldBox = m_boundingBox;
+    Vector3 worldPos = m_worldTransform.getPosition();
+    worldBox.min = worldBox.min + worldPos;
+    worldBox.max = worldBox.max + worldPos;
+    return worldBox;
+}
+
+bool SceneNode::isVisible(const BoundingBox& frustum) const
+{
+    BoundingBox worldBox = getWorldBoundingBox();
+    return worldBox.intersects(frustum);
+}
+
+bool SceneNode::isVisible(const Vector3& cameraPosition, float viewDistance) const
+{
+    BoundingBox worldBox = getWorldBoundingBox();
+    Vector3 center = (worldBox.min + worldBox.max) * 0.5f;
+    Vector3 diff = center - cameraPosition;
+    float dist = std::sqrt(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
+    return dist < viewDistance;
+}
+
+NodeSortKey SceneNode::getSortKey() const
+{
+    NodeSortKey key;
+    key.layer = m_layer;
+    key.materialId = m_materialId;
+    key.distance = 0.0f;
+    return key;
+}
+
+void SceneNode::sortByLayer(std::vector<Ptr>& nodes)
+{
+    std::sort(nodes.begin(), nodes.end(), [](const Ptr& a, const Ptr& b) {
+        return a->getLayer() < b->getLayer();
+    });
+}
+
+void SceneNode::sortByMaterial(std::vector<Ptr>& nodes)
+{
+    std::sort(nodes.begin(), nodes.end(), [](const Ptr& a, const Ptr& b) {
+        return a->getMaterialId() < b->getMaterialId();
+    });
+}
+
 void SceneNode::markDirty()
 {
     m_dirty = true;
