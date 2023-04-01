@@ -5,10 +5,45 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <chrono>
+#include <cmath>
 #include "UIStyle.h"
 
 namespace nebula {
     namespace ui {
+
+        enum class WidgetAnchor {
+            TopLeft,
+            TopCenter,
+            TopRight,
+            MiddleLeft,
+            MiddleCenter,
+            MiddleRight,
+            BottomLeft,
+            BottomCenter,
+            BottomRight,
+            Fill
+        };
+
+        struct TweenTarget {
+            sf::Vector2f position;
+            sf::Vector2f size;
+            graphics::Color color;
+        };
+
+        struct TweenAnimation {
+            TweenTarget from;
+            TweenTarget to;
+            TweenTarget current;
+            float duration;
+            float elapsed;
+            bool active;
+            bool loop;
+            std::function<void()> onComplete;
+
+            TweenAnimation()
+                : duration(0.3f), elapsed(0.f), active(false), loop(false) {}
+        };
 
         class UIWidget : public std::enable_shared_from_this<UIWidget> {
         public:
@@ -56,6 +91,23 @@ namespace nebula {
             virtual void onLayout();
             virtual bool onEvent(const sf::Event& event);
 
+            void setAnchor(WidgetAnchor anchor);
+            WidgetAnchor getAnchor() const;
+
+            void setMargins(float left, float top, float right, float bottom);
+            void setPadding(float left, float top, float right, float bottom);
+            sf::FloatRect getMargins() const;
+            sf::FloatRect getPadding() const;
+
+            void setTooltip(const std::string& tip);
+            std::string getTooltip() const;
+            void setTooltipDelay(float seconds);
+            float getTooltipDelay() const;
+
+            void startTween(const TweenTarget& from, const TweenTarget& to, float duration, bool loop = false);
+            void stopTween();
+            bool isTweening() const;
+
             std::string name;
             std::string id;
             bool enabled;
@@ -82,7 +134,20 @@ namespace nebula {
             bool m_focused;
             bool m_pressed;
 
+            WidgetAnchor m_anchor;
+            sf::FloatRect m_margins;
+            sf::FloatRect m_padding;
+
+            std::string m_tooltipText;
+            float m_tooltipDelay;
+            float m_tooltipTimer;
+            bool m_tooltipVisible;
+
+            TweenAnimation m_tween;
+
             void sortChildrenByZOrder();
+            sf::Vector2f resolveAnchorOffset(const sf::Vector2f& containerSize) const;
+            void updateTween(float dt);
         };
 
     }
