@@ -14,7 +14,13 @@ namespace nebula {
             , m_parent(nullptr)
             , m_hovered(false)
             , m_focused(false)
-            , m_pressed(false) {}
+            , m_pressed(false)
+            , m_anchor(WidgetAnchor::TopLeft)
+            , m_margins(0.f, 0.f, 0.f, 0.f)
+            , m_padding(0.f, 0.f, 0.f, 0.f)
+            , m_tooltipDelay(0.5f)
+            , m_tooltipTimer(0.f)
+            , m_tooltipVisible(false) {}
 
         UIWidget::UIWidget(const std::string& name)
             : name(name)
@@ -27,7 +33,13 @@ namespace nebula {
             , m_parent(nullptr)
             , m_hovered(false)
             , m_focused(false)
-            , m_pressed(false) {}
+            , m_pressed(false)
+            , m_anchor(WidgetAnchor::TopLeft)
+            , m_margins(0.f, 0.f, 0.f, 0.f)
+            , m_padding(0.f, 0.f, 0.f, 0.f)
+            , m_tooltipDelay(0.5f)
+            , m_tooltipTimer(0.f)
+            , m_tooltipVisible(false) {}
 
         void UIWidget::setPosition(float x, float y) {
             m_position.x = x;
@@ -135,6 +147,18 @@ namespace nebula {
         }
 
         void UIWidget::onUpdate(float dt) {
+            if (m_hovered && !m_tooltipText.empty()) {
+                m_tooltipTimer += dt;
+                if (m_tooltipTimer >= m_tooltipDelay) {
+                    m_tooltipVisible = true;
+                }
+            } else {
+                m_tooltipTimer = 0.f;
+                m_tooltipVisible = false;
+            }
+
+            updateTween(dt);
+
             for (auto& child : m_children) {
                 child->onUpdate(dt);
             }
@@ -157,6 +181,135 @@ namespace nebula {
         void UIWidget::sortChildrenByZOrder() {
             std::sort(m_children.begin(), m_children.end(),
                 [](const Ptr& a, const Ptr& b) { return a->zOrder < b->zOrder; });
+        }
+
+        void UIWidget::setAnchor(WidgetAnchor anchor) {
+            m_anchor = anchor;
+        }
+
+        WidgetAnchor UIWidget::getAnchor() const {
+            return m_anchor;
+        }
+
+        void UIWidget::setMargins(float left, float top, float right, float bottom) {
+            m_margins = sf::FloatRect(left, top, right, bottom);
+        }
+
+        void UIWidget::setPadding(float left, float top, float right, float bottom) {
+            m_padding = sf::FloatRect(left, top, right, bottom);
+        }
+
+        sf::FloatRect UIWidget::getMargins() const {
+            return m_margins;
+        }
+
+        sf::FloatRect UIWidget::getPadding() const {
+            return m_padding;
+        }
+
+        void UIWidget::setTooltip(const std::string& tip) {
+            m_tooltipText = tip;
+        }
+
+        std::string UIWidget::getTooltip() const {
+            return m_tooltipText;
+        }
+
+        void UIWidget::setTooltipDelay(float seconds) {
+            m_tooltipDelay = std::max(0.f, seconds);
+        }
+
+        float UIWidget::getTooltipDelay() const {
+            return m_tooltipDelay;
+        }
+
+        void UIWidget::startTween(const TweenTarget& from, const TweenTarget& to, float duration, bool loop) {
+            m_tween.from = from;
+            m_tween.to = to;
+            m_tween.current = from;
+            m_tween.duration = std::max(0.016f, duration);
+            m_tween.elapsed = 0.f;
+            m_tween.active = true;
+            m_tween.loop = loop;
+        }
+
+        void UIWidget::stopTween() {
+            m_tween.active = false;
+            m_tween.elapsed = 0.f;
+        }
+
+        bool UIWidget::isTweening() const {
+            return m_tween.active;
+        }
+
+        sf::Vector2f UIWidget::resolveAnchorOffset(const sf::Vector2f& containerSize) const {
+            sf::Vector2f offset(0.f, 0.f);
+            switch (m_anchor) {
+                case WidgetAnchor::TopLeft:
+                    break;
+                case WidgetAnchor::TopCenter:
+                    offset.x = (containerSize.x - m_size.x) / 2.f;
+                    break;
+                case WidgetAnchor::TopRight:
+                    offset.x = containerSize.x - m_size.x;
+                    break;
+                case WidgetAnchor::MiddleLeft:
+                    offset.y = (containerSize.y - m_size.y) / 2.f;
+                    break;
+                case WidgetAnchor::MiddleCenter:
+                    offset.x = (containerSize.x - m_size.x) / 2.f;
+                    offset.y = (containerSize.y - m_size.y) / 2.f;
+                    break;
+                case WidgetAnchor::MiddleRight:
+                    offset.x = containerSize.x - m_size.x;
+                    offset.y = (containerSize.y - m_size.y) / 2.f;
+                    break;
+                case WidgetAnchor::BottomLeft:
+                    offset.y = containerSize.y - m_size.y;
+                    break;
+                case WidgetAnchor::BottomCenter:
+                    offset.x = (containerSize.x - m_size.x) / 2.f;
+                    offset.y = containerSize.y - m_size.y;
+                    break;
+                case WidgetAnchor::BottomRight:
+                    offset.x = containerSize.x - m_size.x;
+                    offset.y = containerSize.y - m_size.y;
+                    break;
+                case WidgetAnchor::Fill:
+                    break;
+            }
+            offset.x += m_margins.left - m_margins.width;
+            offset.y += m_margins.top - m_margins.height;
+            return offset;
+        }
+
+        void UIWidget::updateTween(float dt) {
+            if (!m_tween.active) return;
+
+            m_tween.elapsed += dt;
+            float t = std::min(1.f, m_tween.elapsed / m_tween.duration);
+
+            float smoothT = t * t * (3.f - 2.f * t);
+
+            m_tween.current.position.x = m_tween.from.position.x + (m_tween.to.position.x - m_tween.from.position.x) * smoothT;
+            m_tween.current.position.y = m_tween.from.position.y + (m_tween.to.position.y - m_tween.from.position.y) * smoothT;
+            m_tween.current.size.x = m_tween.from.size.x + (m_tween.to.size.x - m_tween.from.size.x) * smoothT;
+            m_tween.current.size.y = m_tween.from.size.y + (m_tween.to.size.y - m_tween.from.size.y) * smoothT;
+
+            m_position = m_tween.current.position;
+            m_size = m_tween.current.size;
+
+            if (t >= 1.f) {
+                if (m_tween.loop) {
+                    m_tween.elapsed = 0.f;
+                    m_tween.current = m_tween.from;
+                } else {
+                    m_tween.active = false;
+                    if (m_tween.onComplete) {
+                        m_tween.onComplete();
+                    }
+                }
+            }
         }
 
     }
