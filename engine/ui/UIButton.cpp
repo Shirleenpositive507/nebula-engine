@@ -5,6 +5,8 @@
 namespace nebula {
     namespace ui {
 
+        std::unordered_map<std::string, std::weak_ptr<UIButton>> UIButton::s_groupSelection;
+
         UIButton::UIButton()
             : UIWidget("Button")
             , m_state(ButtonState::Normal)
@@ -12,7 +14,20 @@ namespace nebula {
             , m_cornerRadius(4.f)
             , m_autoSize(true)
             , m_hoverLerp(0.f)
-            , m_scalePulse(0.f) {
+            , m_scalePulse(0.f)
+            , m_toggleMode(false)
+            , m_toggled(false)
+            , m_radioExclusive(true)
+            , m_shortcutKey(sf::Keyboard::Unknown)
+            , m_shortcutCtrl(false)
+            , m_shortcutAlt(false)
+            , m_shortcutShift(false)
+            , m_autoRepeat(false)
+            , m_autoRepeatDelay(0.5f)
+            , m_autoRepeatRate(0.05f)
+            , m_repeatTimer(0.f)
+            , m_repeatFired(false)
+            , m_iconSize(16.f, 16.f) {
             m_size.x = 120.f;
             m_size.y = 32.f;
             focusable = true;
@@ -90,6 +105,124 @@ namespace nebula {
             m_autoSize = autoSize;
         }
 
+        void UIButton::setToggleMode(bool toggle) {
+            m_toggleMode = toggle;
+        }
+
+        bool UIButton::isToggleMode() const {
+            return m_toggleMode;
+        }
+
+        void UIButton::setToggled(bool toggled) {
+            m_toggled = toggled;
+            if (m_toggleMode) {
+                if (toggled && !m_radioGroup.empty() && m_radioExclusive) {
+                    setGroupSelection(m_radioGroup, shared_from_this());
+                }
+                updateAppearance();
+            }
+        }
+
+        bool UIButton::isToggled() const {
+            return m_toggled;
+        }
+
+        void UIButton::setRadioGroup(const std::string& group) {
+            m_radioGroup = group;
+        }
+
+        std::string UIButton::getRadioGroup() const {
+            return m_radioGroup;
+        }
+
+        void UIButton::setRadioGroupExclusive(bool exclusive) {
+            m_radioExclusive = exclusive;
+        }
+
+        void UIButton::setIcon(const std::string& iconPath) {
+            auto tex = std::make_shared<sf::Texture>();
+            if (tex->loadFromFile(iconPath)) {
+                m_iconTexture = tex;
+                m_iconSprite.setTexture(*m_iconTexture);
+                m_iconSprite.setScale(
+                    m_iconSize.x / static_cast<float>(tex->getSize().x),
+                    m_iconSize.y / static_cast<float>(tex->getSize().y)
+                );
+            }
+        }
+
+        void UIButton::setIcon(const std::shared_ptr<sf::Texture>& iconTexture) {
+            m_iconTexture = iconTexture;
+            if (iconTexture) {
+                m_iconSprite.setTexture(*iconTexture);
+                m_iconSprite.setScale(
+                    m_iconSize.x / static_cast<float>(iconTexture->getSize().x),
+                    m_iconSize.y / static_cast<float>(iconTexture->getSize().y)
+                );
+            }
+        }
+
+        void UIButton::setIconSize(float width, float height) {
+            m_iconSize = sf::Vector2f(width, height);
+            if (m_iconTexture) {
+                m_iconSprite.setScale(
+                    m_iconSize.x / static_cast<float>(m_iconTexture->getSize().x),
+                    m_iconSize.y / static_cast<float>(m_iconTexture->getSize().y)
+                );
+            }
+        }
+
+        void UIButton::setShortcutKey(sf::Keyboard::Key key, bool ctrl, bool alt, bool shift) {
+            m_shortcutKey = key;
+            m_shortcutCtrl = ctrl;
+            m_shortcutAlt = alt;
+            m_shortcutShift = shift;
+        }
+
+        sf::Keyboard::Key UIButton::getShortcutKey() const {
+            return m_shortcutKey;
+        }
+
+        bool UIButton::matchesShortcut(const sf::Event& event) const {
+            if (event.type != sf::Event::KeyPressed) return false;
+            if (m_shortcutKey == sf::Keyboard::Unknown) return false;
+            if (event.key.code != m_shortcutKey) return false;
+            if (m_shortcutCtrl != (event.key.control)) return false;
+            if (m_shortcutAlt != (event.key.alt)) return false;
+            if (m_shortcutShift != (event.key.shift)) return false;
+            return true;
+        }
+
+        void UIButton::setAutoRepeat(bool repeat) {
+            m_autoRepeat = repeat;
+            m_repeatTimer = 0.f;
+            m_repeatFired = false;
+        }
+
+        bool UIButton::isAutoRepeat() const {
+            return m_autoRepeat;
+        }
+
+        void UIButton::setAutoRepeatDelay(float delay) {
+            m_autoRepeatDelay = delay;
+        }
+
+        void UIButton::setAutoRepeatRate(float rate) {
+            m_autoRepeatRate = rate;
+        }
+
+        std::shared_ptr<UIButton> UIButton::getSelectedInGroup(const std::string& group) {
+            auto it = s_groupSelection.find(group);
+            if (it != s_groupSelection.end()) {
+                return it->second.lock();
+            }
+            return nullptr;
+        }
+
+        void UIButton::setGroupSelection(const std::string& group, std::shared_ptr<UIButton> button) {
+            s_groupSelection[group] = button;
+        }
+
         graphics::Color UIButton::lerpColor(const graphics::Color& a, const graphics::Color& b, float t) const {
             return graphics::Color::lerp(a, b, t);
         }
@@ -102,6 +235,10 @@ namespace nebula {
                 const auto& fromColors = m_colors[static_cast<int>(ButtonState::Normal)];
                 const auto& toColors = m_colors[static_cast<int>(ButtonState::Hovered)];
                 currentBg = lerpColor(fromColors.bg, toColors.bg, m_hoverLerp);
+            }
+
+            if (m_toggleMode && m_toggled) {
+                currentBg = lerpColor(currentBg, graphics::Color(100, 180, 100), 0.5f);
             }
 
             m_background.setFillColor(currentBg.toSFML());
@@ -141,6 +278,14 @@ namespace nebula {
             }
 
             target.draw(m_background, states);
+
+            if (m_iconTexture) {
+                float iconX = style.padding;
+                float iconY = (m_size.y - m_iconSize.y) / 2.f;
+                m_iconSprite.setPosition(iconX, iconY);
+                target.draw(m_iconSprite, states);
+            }
+
             UIWidget::onRender(target, states);
         }
 
@@ -166,24 +311,44 @@ namespace nebula {
             if (m_scalePulse > 0.f) {
                 m_scalePulse = std::max(0.f, m_scalePulse - dt * 6.f);
             }
+
+            if (m_autoRepeat && m_pressed) {
+                handleAutoRepeat(dt);
+            }
         }
 
         void UIButton::onLayout() {
             if (m_autoSize && m_label) {
                 sf::FloatRect textBounds = m_label->getTextBounds();
-                m_size.x = textBounds.width + style.padding * 2.f + 16.f;
+                float iconOffset = m_iconTexture ? m_iconSize.x + 4.f : 0.f;
+                m_size.x = textBounds.width + style.padding * 2.f + 16.f + iconOffset;
                 m_size.y = textBounds.height + style.padding * 2.f + 8.f;
             }
             m_background.setSize(m_size);
             if (m_label) {
-                m_label->setPosition(0.f, 0.f);
-                m_label->setSize(m_size.x, m_size.y);
+                float iconOffset = m_iconTexture ? m_iconSize.x + 4.f : 0.f;
+                m_label->setPosition(iconOffset, 0.f);
+                m_label->setSize(m_size.x - iconOffset, m_size.y);
             }
             UIWidget::onLayout();
         }
 
         bool UIButton::onEvent(const sf::Event& event) {
             if (!enabled || !visible) return false;
+
+            if (matchesShortcut(event)) {
+                if (m_toggleMode) {
+                    m_toggled = !m_toggled;
+                    if (!m_radioGroup.empty() && m_radioExclusive && m_toggled) {
+                        setGroupSelection(m_radioGroup, shared_from_this());
+                    }
+                    updateAppearance();
+                    if (onToggled) onToggled();
+                }
+                if (onClick) onClick();
+                if (onClicked) onClicked();
+                return true;
+            }
 
             if (event.type == sf::Event::MouseMoved) {
                 sf::Vector2f mousePos(static_cast<float>(event.mouseMove.x), static_cast<float>(event.mouseMove.y));
@@ -205,6 +370,8 @@ namespace nebula {
                     m_targetState = ButtonState::Pressed;
                     m_pressed = true;
                     m_scalePulse = 1.f;
+                    m_repeatTimer = 0.f;
+                    m_repeatFired = false;
                     if (onPressed) onPressed();
                     return true;
                 }
@@ -216,6 +383,16 @@ namespace nebula {
                     sf::Vector2f mousePos(static_cast<float>(event.mouseButton.x), static_cast<float>(event.mouseButton.y));
                     if (containsPoint(mousePos)) {
                         m_targetState = ButtonState::Hovered;
+
+                        if (m_toggleMode) {
+                            m_toggled = !m_toggled;
+                            if (!m_radioGroup.empty() && m_radioExclusive && m_toggled) {
+                                setGroupSelection(m_radioGroup, shared_from_this());
+                            }
+                            updateAppearance();
+                            if (onToggled) onToggled();
+                        }
+
                         if (onClick) onClick();
                         if (onClicked) onClicked();
                     } else {
@@ -228,6 +405,24 @@ namespace nebula {
             }
 
             return UIWidget::onEvent(event);
+        }
+
+        void UIButton::handleAutoRepeat(float dt) {
+            m_repeatTimer += dt;
+            if (!m_repeatFired) {
+                if (m_repeatTimer >= m_autoRepeatDelay) {
+                    m_repeatFired = true;
+                    m_repeatTimer = 0.f;
+                    if (onClick) onClick();
+                    if (onClicked) onClicked();
+                }
+            } else {
+                if (m_repeatTimer >= m_autoRepeatRate) {
+                    m_repeatTimer = 0.f;
+                    if (onClick) onClick();
+                    if (onClicked) onClicked();
+                }
+            }
         }
 
     }
