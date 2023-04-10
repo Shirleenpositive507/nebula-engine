@@ -16,6 +16,9 @@ namespace nebula {
             , m_thumbColor(180, 180, 180)
             , m_dragging(false)
             , m_thumbSize(16.f)
+            , m_fillColor(60, 140, 210)
+            , m_showFill(true)
+            , m_snapToStep(true)
             , showTickMarks(false)
             , tickMarkCount(10) {
             m_size.x = 200.f;
@@ -24,7 +27,7 @@ namespace nebula {
 
         void UISlider::setValue(float value) {
             m_value = std::max(m_minValue, std::min(m_maxValue, value));
-            if (m_step > 0.f) {
+            if (m_snapToStep && m_step > 0.f) {
                 m_value = snapToStep(m_value);
             }
             updateThumbPosition();
@@ -40,9 +43,21 @@ namespace nebula {
             setValue(m_value);
         }
 
+        float UISlider::getMinValue() const {
+            return m_minValue;
+        }
+
+        float UISlider::getMaxValue() const {
+            return m_maxValue;
+        }
+
         void UISlider::setStep(float step) {
             m_step = step;
             setValue(m_value);
+        }
+
+        float UISlider::getStep() const {
+            return m_step;
         }
 
         void UISlider::setOrientation(SliderOrientation orientation) {
@@ -54,6 +69,10 @@ namespace nebula {
                 m_size.x = 200.f;
                 m_size.y = 20.f;
             }
+        }
+
+        SliderOrientation UISlider::getOrientation() const {
+            return m_orientation;
         }
 
         float UISlider::getNormalizedValue() const {
@@ -76,6 +95,35 @@ namespace nebula {
 
         void UISlider::setThumbColor(const graphics::Color& color) {
             m_thumbColor = color;
+        }
+
+        void UISlider::setFillColor(const graphics::Color& color) {
+            m_fillColor = color;
+        }
+
+        void UISlider::setShowFill(bool show) {
+            m_showFill = show;
+        }
+
+        void UISlider::setTickMarks(bool show, int count) {
+            showTickMarks = show;
+            tickMarkCount = std::max(2, count);
+        }
+
+        bool UISlider::hasTickMarks() const {
+            return showTickMarks;
+        }
+
+        int UISlider::getTickMarkCount() const {
+            return tickMarkCount;
+        }
+
+        void UISlider::setSnapToStep(bool snap) {
+            m_snapToStep = snap;
+        }
+
+        bool UISlider::isSnapToStep() const {
+            return m_snapToStep;
         }
 
         float UISlider::snapToStep(float val) const {
@@ -123,12 +171,32 @@ namespace nebula {
 
             if (m_orientation == SliderOrientation::Horizontal) {
                 float trackHeight = 6.f;
+                float trackY = (m_size.y - trackHeight) / 2.f;
                 m_track.setSize(sf::Vector2f(m_size.x, trackHeight));
-                m_track.setPosition(0.f, (m_size.y - trackHeight) / 2.f);
+                m_track.setPosition(0.f, trackY);
+
+                if (m_showFill) {
+                    float norm = getNormalizedValue();
+                    float fillWidth = norm * m_size.x;
+                    m_fillBar.setSize(sf::Vector2f(fillWidth, trackHeight));
+                    m_fillBar.setPosition(0.f, trackY);
+                    m_fillBar.setFillColor(m_fillColor.toSFML());
+                    target.draw(m_fillBar, states);
+                }
             } else {
                 float trackWidth = 6.f;
+                float trackX = (m_size.x - trackWidth) / 2.f;
                 m_track.setSize(sf::Vector2f(trackWidth, m_size.y));
-                m_track.setPosition((m_size.x - trackWidth) / 2.f, 0.f);
+                m_track.setPosition(trackX, 0.f);
+
+                if (m_showFill) {
+                    float norm = getNormalizedValue();
+                    float fillHeight = norm * m_size.y;
+                    m_fillBar.setSize(sf::Vector2f(trackWidth, fillHeight));
+                    m_fillBar.setPosition(trackX, m_size.y - fillHeight);
+                    m_fillBar.setFillColor(m_fillColor.toSFML());
+                    target.draw(m_fillBar, states);
+                }
             }
 
             m_track.setFillColor(m_trackColor.toSFML());
