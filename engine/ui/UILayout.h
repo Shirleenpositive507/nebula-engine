@@ -3,6 +3,7 @@
 #include "UIWidget.h"
 #include <memory>
 #include <vector>
+#include <functional>
 
 namespace nebula {
     namespace ui {
@@ -14,6 +15,27 @@ namespace nebula {
             Right,
             Center,
             Fill
+        };
+
+        struct LayoutConstraint {
+            float minWidth;
+            float maxWidth;
+            float minHeight;
+            float maxHeight;
+            float priority;
+
+            LayoutConstraint()
+                : minWidth(0.f), maxWidth(10000.f)
+                , minHeight(0.f), maxHeight(10000.f)
+                , priority(0.5f) {}
+        };
+
+        struct SpacingRule {
+            float before;
+            float after;
+            float between;
+
+            SpacingRule() : before(0.f), after(0.f), between(4.f) {}
         };
 
         class UILayout {
@@ -28,6 +50,16 @@ namespace nebula {
             void setPadding(float padding);
             void fitToContent();
 
+            void setConstraint(const LayoutConstraint& constraint);
+            LayoutConstraint getConstraint() const;
+
+            void setSpacingRule(const SpacingRule& rule);
+            SpacingRule getSpacingRule() const;
+
+            void setDebugDraw(bool debug);
+            bool isDebugDraw() const;
+            void setDebugDrawFunction(std::function<void(const sf::FloatRect&, const graphics::Color&)> drawFunc);
+
             float spacing;
             float padding;
             float margin;
@@ -37,6 +69,13 @@ namespace nebula {
 
         protected:
             std::vector<std::shared_ptr<UIWidget>> m_widgets;
+            LayoutConstraint m_constraint;
+            SpacingRule m_spacingRule;
+            bool m_debugDraw;
+            std::function<void(const sf::FloatRect&, const graphics::Color&)> m_debugDrawFunc;
+
+            void applyConstraints(std::shared_ptr<UIWidget> widget);
+            void debugDrawRect(const sf::FloatRect& rect, const graphics::Color& color);
         };
 
         class HorizontalLayout : public UILayout {
@@ -75,6 +114,9 @@ namespace nebula {
         class FlowLayout : public UILayout {
         public:
             void apply(std::vector<std::shared_ptr<UIWidget>>& widgets, const sf::Vector2f& containerSize) override;
+
+            bool wrap;
+            sf::Vector2f preferredItemSize;
         };
 
     }
