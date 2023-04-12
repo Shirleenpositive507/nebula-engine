@@ -9,7 +9,8 @@ namespace nebula {
             , padding(0.f)
             , margin(0.f)
             , anchorH(Anchor::Left)
-            , anchorV(Anchor::Top) {}
+            , anchorV(Anchor::Top)
+            , m_debugDraw(false) {}
 
         void UILayout::apply(std::vector<std::shared_ptr<UIWidget>>& widgets, const sf::Vector2f& containerSize) {
             m_widgets = widgets;
@@ -30,12 +31,54 @@ namespace nebula {
             }
         }
 
+        void UILayout::setConstraint(const LayoutConstraint& constraint) {
+            m_constraint = constraint;
+        }
+
+        LayoutConstraint UILayout::getConstraint() const {
+            return m_constraint;
+        }
+
+        void UILayout::setSpacingRule(const SpacingRule& rule) {
+            m_spacingRule = rule;
+        }
+
+        SpacingRule UILayout::getSpacingRule() const {
+            return m_spacingRule;
+        }
+
+        void UILayout::setDebugDraw(bool debug) {
+            m_debugDraw = debug;
+        }
+
+        bool UILayout::isDebugDraw() const {
+            return m_debugDraw;
+        }
+
+        void UILayout::setDebugDrawFunction(std::function<void(const sf::FloatRect&, const graphics::Color&)> drawFunc) {
+            m_debugDrawFunc = std::move(drawFunc);
+        }
+
+        void UILayout::applyConstraints(std::shared_ptr<UIWidget> widget) {
+            sf::Vector2f size = widget->getSize();
+            size.x = std::max(m_constraint.minWidth, std::min(m_constraint.maxWidth, size.x));
+            size.y = std::max(m_constraint.minHeight, std::min(m_constraint.maxHeight, size.y));
+            widget->setSize(size);
+        }
+
+        void UILayout::debugDrawRect(const sf::FloatRect& rect, const graphics::Color& color) {
+            if (m_debugDraw && m_debugDrawFunc) {
+                m_debugDrawFunc(rect, color);
+            }
+        }
+
         float HorizontalLayout::getTotalFixedWidth(const std::vector<std::shared_ptr<UIWidget>>& widgets) const {
             float total = 0.f;
             for (auto& w : widgets) {
                 total += w->getSize().x;
             }
-            total += spacing * std::max(0, static_cast<int>(widgets.size()) - 1);
+            total += m_spacingRule.between * std::max(0, static_cast<int>(widgets.size()) - 1);
+            total += m_spacingRule.before + m_spacingRule.after;
             return total;
         }
 
@@ -52,16 +95,30 @@ namespace nebula {
             m_widgets = widgets;
             if (widgets.empty()) return;
 
-            float x = padding;
+            std::sort(widgets.begin(), widgets.end(),
+                [](const std::shared_ptr<UIWidget>& a, const std::shared_ptr<UIWidget>& b) {
+                    (void)a; (void)b;
+                    return true;
+                });
+
+            float x = padding + m_spacingRule.before;
             float totalFixed = getTotalFixedWidth(widgets);
-            float available = containerSize.x - padding * 2.f;
+            float available = containerSize.x - padding * 2.f - m_spacingRule.before - m_spacingRule.after;
             int expandCount = getExpandCount(widgets);
             float expandWidth = 0.f;
+
             if (expandCount > 0 && totalFixed < available) {
-                expandWidth = (available - totalFixed) / static_cast<float>(expandCount);
+                float remaining = available - (totalFixed - m_spacingRule.before - m_spacingRule.after);
+                float prioritySum = 0.f;
+                for (auto& w : widgets) {
+                    (void)w;
+                    prioritySum += 0.5f;
+                }
+                expandWidth = prioritySum > 0.f ? remaining / expandCount : 0.f;
             }
 
             for (auto& w : widgets) {
+                applyConstraints(w);
                 sf::Vector2f size = w->getSize();
                 if (fill) {
                     size.y = containerSize.y - padding * 2.f;
@@ -69,6 +126,7 @@ namespace nebula {
                 if (expand) {
                     size.x += expandWidth;
                 }
+                size.x = std::max(m_constraint.minWidth, std::min(m_constraint.maxWidth, size.x));
                 w->setSize(size);
 
                 float y = padding;
@@ -84,7 +142,13 @@ namespace nebula {
                 }
 
                 w->setPosition(x, y);
-                x += size.x + spacing;
+
+                if (m_debugDraw) {
+                    sf::FloatRect dbg(x, y, size.x, size.y);
+                    debugDrawRect(dbg, graphics::Color(0, 255, 0, 80));
+                }
+
+                x += size.x + m_spacingRule.between;
             }
         }
 
@@ -93,7 +157,8 @@ namespace nebula {
             for (auto& w : widgets) {
                 total += w->getSize().y;
             }
-            total += spacing * std::max(0, static_cast<int>(widgets.size()) - 1);
+            total += m_spacingRule.between * std::max(0, static_cast<int>(widgets.size()) - 1);
+            total += m_spacingRule.before + m_spacingRule.after;
             return total;
         }
 
@@ -110,16 +175,25 @@ namespace nebula {
             m_widgets = widgets;
             if (widgets.empty()) return;
 
-            float y = padding;
+            std::sort(widgets.begin(), widgets.end(),
+                [](const std::shared_ptr<UIWidget>& a, const std::shared_ptr<UIWidget>& b) {
+                    (void)a; (void)b;
+                    return true;
+                });
+
+            float y = padding + m_spacingRule.before;
             float totalFixed = getTotalFixedHeight(widgets);
-            float available = containerSize.y - padding * 2.f;
+            float available = containerSize.y - padding * 2.f - m_spacingRule.before - m_spacingRule.after;
             int expandCount = getExpandCount(widgets);
             float expandHeight = 0.f;
+
             if (expandCount > 0 && totalFixed < available) {
-                expandHeight = (available - totalFixed) / static_cast<float>(expandCount);
+                float remaining = available - (totalFixed - m_spacingRule.before - m_spacingRule.after);
+                expandHeight = remaining / static_cast<float>(expandCount);
             }
 
             for (auto& w : widgets) {
+                applyConstraints(w);
                 sf::Vector2f size = w->getSize();
                 if (fill) {
                     size.x = containerSize.x - padding * 2.f;
@@ -127,6 +201,7 @@ namespace nebula {
                 if (expand) {
                     size.y += expandHeight;
                 }
+                size.y = std::max(m_constraint.minHeight, std::min(m_constraint.maxHeight, size.y));
                 w->setSize(size);
 
                 float x = padding;
@@ -142,7 +217,13 @@ namespace nebula {
                 }
 
                 w->setPosition(x, y);
-                y += size.y + spacing;
+
+                if (m_debugDraw) {
+                    sf::FloatRect dbg(x, y, size.x, size.y);
+                    debugDrawRect(dbg, graphics::Color(0, 255, 0, 80));
+                }
+
+                y += size.y + m_spacingRule.between;
             }
         }
 
@@ -161,6 +242,7 @@ namespace nebula {
                 float x = padding + col * (cellW + spacing);
                 float y = padding + row * (cellH + spacing);
 
+                applyConstraints(widgets[i]);
                 widgets[i]->setPosition(x, y);
                 widgets[i]->setSize(cellW, cellH);
             }
@@ -175,9 +257,10 @@ namespace nebula {
             float maxLineHeight = 0.f;
 
             for (auto& w : widgets) {
+                applyConstraints(w);
                 sf::Vector2f size = w->getSize();
 
-                if (x + size.x > containerSize.x - padding && x > padding) {
+                if (wrap && x + size.x > containerSize.x - padding && x > padding) {
                     x = padding;
                     y += maxLineHeight + spacing;
                     maxLineHeight = 0.f;
