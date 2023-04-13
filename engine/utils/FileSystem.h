@@ -5,6 +5,10 @@
 #include <functional>
 #include <chrono>
 #include <filesystem>
+#include <memory>
+#include <mutex>
+#include <unordered_map>
+#include <cstdint>
 
 namespace nebula {
 
@@ -18,6 +22,74 @@ namespace nebula {
     struct FileWatcherEntry {
         std::string path;
         std::filesystem::file_time_type lastWriteTime;
+    };
+
+    class MappedFile {
+    public:
+        MappedFile();
+        ~MappedFile();
+
+        bool open(const std::string& path);
+        void close();
+        bool isOpen() const;
+
+        const uint8_t* data() const;
+        uint8_t* data();
+        size_t size() const;
+
+    private:
+#ifdef NEBULA_PLATFORM_WINDOWS
+        void* m_handle;
+        void* m_mapping;
+#endif
+        uint8_t* m_data;
+        size_t m_size;
+    };
+
+    class FileLock {
+    public:
+        FileLock();
+        ~FileLock();
+
+        bool lock(const std::string& path, bool shared = false);
+        void unlock();
+        bool isLocked() const;
+
+    private:
+#ifdef NEBULA_PLATFORM_WINDOWS
+        void* m_handle;
+#endif
+        std::string m_path;
+        bool m_locked;
+    };
+
+    class DirectoryWatcher {
+    public:
+        using Callback = std::function<void(const std::string& path, bool isDir)>;
+
+        DirectoryWatcher();
+        ~DirectoryWatcher();
+
+        void watchDirectory(const std::string& dirPath, bool recursive = false);
+        void unwatchDirectory(const std::string& dirPath);
+        void unwatchAll();
+        void poll();
+
+        void setFileCreatedCallback(Callback callback);
+        void setFileModifiedCallback(Callback callback);
+        void setFileDeletedCallback(Callback callback);
+
+    private:
+        struct WatchEntry {
+            std::string path;
+            bool recursive;
+            std::unordered_map<std::string, std::filesystem::file_time_type> fileTimes;
+        };
+
+        std::vector<WatchEntry> m_entries;
+        Callback m_onCreated;
+        Callback m_onModified;
+        Callback m_onDeleted;
     };
 
     class FileSystem {
@@ -61,6 +133,10 @@ namespace nebula {
         static bool setCurrentDirectory(const std::string& path);
 
         static std::string getSpecialFolder(SpecialFolder folder);
+
+        static std::string sanitizePath(const std::string& path);
+        static std::string createTempFile(const std::string& prefix = "", const std::string& suffix = ".tmp");
+        static std::string createTempDirectory(const std::string& prefix = "");
     };
 
     class FileWatcher {
