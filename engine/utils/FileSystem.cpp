@@ -2,13 +2,222 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cstring>
+#include <cstdio>
 
 #ifdef NEBULA_PLATFORM_WINDOWS
 #include <windows.h>
 #include <shlobj.h>
+#include <fileapi.h>
 #endif
 
 namespace nebula {
+
+    namespace fs = std::filesystem;
+
+    MappedFile::MappedFile()
+#ifdef NEBULA_PLATFORM_WINDOWS
+        : m_handle(nullptr)
+        , m_mapping(nullptr)
+#endif
+        , m_data(nullptr)
+        , m_size(0) {}
+
+    MappedFile::~MappedFile() {
+        close();
+    }
+
+    bool MappedFile::open(const std::string& path) {
+        close();
+#ifdef NEBULA_PLATFORM_WINDOWS
+        m_handle = CreateFileA(
+            path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr
+        );
+        if (m_handle == INVALID_HANDLE_VALUE) {
+            m_handle = nullptr;
+            return false;
+        }
+
+        LARGE_INTEGER fileSize;
+        GetFileSizeEx(m_handle, &fileSize);
+        m_size = static_cast<size_t>(fileSize.QuadPart);
+
+        m_mapping = CreateFileMapping(m_handle, nullptr, PAGE_READONLY, 0, 0, nullptr);
+        if (!m_mapping) {
+            CloseHandle(m_handle);
+            m_handle = nullptr;
+            return false;
+        }
+
+        m_data = static_cast<uint8_t*>(MapViewOfFile(m_mapping, FILE_MAP_READ, 0, 0, 0));
+        if (!m_data) {
+            CloseHandle(m_mapping);
+            CloseHandle(m_handle);
+            m_mapping = nullptr;
+            m_handle = nullptr;
+            return false;
+        }
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    void MappedFile::close() {
+#ifdef NEBULA_PLATFORM_WINDOWS
+        if (m_data) { UnmapViewOfFile(m_data); m_data = nullptr; }
+        if (m_mapping) { CloseHandle(m_mapping); m_mapping = nullptr; }
+        if (m_handle) { CloseHandle(m_handle); m_handle = nullptr; }
+#endif
+        m_size = 0;
+    }
+
+    bool MappedFile::isOpen() const {
+        return m_data != nullptr;
+    }
+
+    const uint8_t* MappedFile::data() const {
+        return m_data;
+    }
+
+    uint8_t* MappedFile::data() {
+        return m_data;
+    }
+
+    size_t MappedFile::size() const {
+        return m_size;
+    }
+
+    FileLock::FileLock()
+#ifdef NEBULA_PLATFORM_WINDOWS
+        : m_handle(nullptr)
+#endif
+        , m_locked(false) {}
+
+    FileLock::~FileLock() {
+        unlock();
+    }
+
+    bool FileLock::lock(const std::string& path, bool shared) {
+        unlock();
+#ifdef NEBULA_PLATFORM_WINDOWS
+        DWORD access = shared ? GENERIC_READ : (GENERIC_READ | GENERIC_WRITE);
+        DWORD shareMode = shared ? FILE_SHARE_READ : 0;
+        m_handle = CreateFileA(
+            path.c_str(), access, shareMode, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr
+        );
+        if (m_handle == INVALID_HANDLE_VALUE) {
+            m_handle = nullptr;
+            return false;
+        }
+        OVERLAPPED overlapped = {0};
+        if (!LockFileEx(m_handle, shared ? LOCKFILE_FAIL_IMMEDIATELY : 0, 0, MAXDWORD, MAXDWORD, &overlapped)) {
+            CloseHandle(m_handle);
+            m_handle = nullptr;
+            return false;
+        }
+        m_path = path;
+        m_locked = true;
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    void FileLock::unlock() {
+#ifdef NEBULA_PLATFORM_WINDOWS
+        if (m_handle) {
+            OVERLAPPED overlapped = {0};
+            UnlockFileEx(m_handle, 0, MAXDWORD, MAXDWORD, &overlapped);
+            CloseHandle(m_handle);
+            m_handle = nullptr;
+        }
+#endif
+        m_locked = false;
+        m_path.clear();
+    }
+
+    bool FileLock::isLocked() const {
+        return m_locked;
+    }
+
+    DirectoryWatcher::DirectoryWatcher() {}
+    DirectoryWatcher::~DirectoryWatcher() {}
+
+    void DirectoryWatcher::watchDirectory(const std::string& dirPath, bool recursive) {
+        if (!FileSystem::directoryExists(dirPath)) return;
+
+        WatchEntry entry;
+        entry.path = dirPath;
+        entry.recursive = recursive;
+
+        for (const auto& file : fs::recursive_directory_iterator(dirPath)) {
+            if (file.is_regular_file()) {
+                entry.fileTimes[file.path().string()] = fs::last_write_time(file.path());
+            }
+        }
+
+        m_entries.push_back(std::move(entry));
+    }
+
+    void DirectoryWatcher::unwatchDirectory(const std::string& dirPath) {
+        m_entries.erase(
+            std::remove_if(m_entries.begin(), m_entries.end(),
+                [&](const WatchEntry& e) { return e.path == dirPath; }),
+            m_entries.end()
+        );
+    }
+
+    void DirectoryWatcher::unwatchAll() {
+        m_entries.clear();
+    }
+
+    void DirectoryWatcher::poll() {
+        for (auto& entry : m_entries) {
+            std::unordered_map<std::string, std::filesystem::file_time_type> current;
+
+            try {
+                auto begin = fs::recursive_directory_iterator(entry.path);
+                auto end = fs::recursive_directory_iterator();
+                for (auto it = begin; it != end; ++it) {
+                    if (it->is_regular_file()) {
+                        std::string path = it->path().string();
+                        auto time = fs::last_write_time(it->path());
+                        current[path] = time;
+
+                        auto prev = entry.fileTimes.find(path);
+                        if (prev == entry.fileTimes.end()) {
+                            if (m_onCreated) m_onCreated(path, false);
+                        } else if (prev->second != time) {
+                            if (m_onModified) m_onModified(path, false);
+                        }
+                    }
+                }
+            } catch (...) {}
+
+            for (auto& [path, _] : entry.fileTimes) {
+                if (current.find(path) == current.end()) {
+                    if (m_onDeleted) m_onDeleted(path, false);
+                }
+            }
+
+            entry.fileTimes = std::move(current);
+        }
+    }
+
+    void DirectoryWatcher::setFileCreatedCallback(Callback callback) {
+        m_onCreated = std::move(callback);
+    }
+
+    void DirectoryWatcher::setFileModifiedCallback(Callback callback) {
+        m_onModified = std::move(callback);
+    }
+
+    void DirectoryWatcher::setFileDeletedCallback(Callback callback) {
+        m_onDeleted = std::move(callback);
+    }
 
     namespace fs = std::filesystem;
 
@@ -175,6 +384,65 @@ namespace nebula {
             case SpecialFolder::Documents: return getenv("HOME") + std::string("/Documents");
             case SpecialFolder::AppData:   return getenv("HOME") + std::string("/.local/share");
             case SpecialFolder::Temp:      return "/tmp";
+        }
+        return std::string();
+#endif
+    }
+
+    std::string FileSystem::sanitizePath(const std::string& path) {
+        std::string result = path;
+        std::replace(result.begin(), result.end(), '\\', '/');
+
+        while (result.find("//") != std::string::npos) {
+            result.replace(result.find("//"), 2, "/");
+        }
+
+        size_t pos;
+        while ((pos = result.find("/./")) != std::string::npos) {
+            result.erase(pos, 2);
+        }
+
+        return result;
+    }
+
+    std::string FileSystem::createTempFile(const std::string& prefix, const std::string& suffix) {
+        std::string tmpDir = fs::temp_directory_path().string();
+        std::string templatePath = tmpDir + "/" + prefix + "XXXXXX" + suffix;
+
+#ifdef NEBULA_PLATFORM_WINDOWS
+        char tempPath[MAX_PATH];
+        GetTempFileNameA(tmpDir.c_str(), prefix.c_str(), 0, tempPath);
+        return std::string(tempPath);
+#else
+        std::vector<char> buf(templatePath.begin(), templatePath.end());
+        buf.push_back('\0');
+        int fd = mkstemp(buf.data());
+        if (fd != -1) {
+            close(fd);
+            return std::string(buf.data());
+        }
+        return std::string();
+#endif
+    }
+
+    std::string FileSystem::createTempDirectory(const std::string& prefix) {
+        std::string tmpDir = fs::temp_directory_path().string();
+        std::string dirPath = tmpDir + "/" + prefix + "XXXXXX";
+
+#ifdef NEBULA_PLATFORM_WINDOWS
+        char tempPath[MAX_PATH];
+        GetTempPathA(MAX_PATH, tempPath);
+        char dirName[MAX_PATH];
+        GetTempFileNameA(tempPath, prefix.c_str(), 0, dirName);
+        fs::remove(dirName);
+        fs::create_directory(dirName);
+        return std::string(dirName);
+#else
+        std::vector<char> buf(dirPath.begin(), dirPath.end());
+        buf.push_back('\0');
+        char* result = mkdtemp(buf.data());
+        if (result) {
+            return std::string(result);
         }
         return std::string();
 #endif
