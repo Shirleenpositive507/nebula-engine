@@ -6,6 +6,8 @@
 #include <memory>
 #include <variant>
 #include <stdexcept>
+#include <functional>
+#include <istream>
 
 namespace nebula {
 
@@ -63,21 +65,52 @@ namespace nebula {
         std::string toString() const;
         std::string prettyPrint(int indent = 0) const;
 
-    static JSONValue parse(const std::string& json);
-    static JSONValue parseStream(std::istream& stream);
+        static JSONValue parse(const std::string& json);
+        static JSONValue parseStream(std::istream& stream);
 
-    static std::string unescapeString(const std::string& str);
+        static std::string unescapeString(const std::string& str);
 
-private:
-    JSONType m_type;
-    std::variant<bool, double, std::string, JSONArray, JSONObject> m_data;
+        static JSONValue query(const JSONValue& root, const std::string& path);
+        static std::vector<JSONValue> queryAll(const JSONValue& root, const std::string& path);
 
-    std::string escapeString(const std::string& str) const;
+        static JSONValue merge(const JSONValue& base, const JSONValue& override_);
+
+        static JSONValue diff(const JSONValue& a, const JSONValue& b);
+        static JSONValue patch(const JSONValue& base, const JSONValue& patchData);
+
+        static bool validateSchema(const JSONValue& value, const JSONValue& schema, std::string* errorOut = nullptr);
+
+        class StreamingParser {
+        public:
+            StreamingParser();
+            void feed(const std::string& chunk);
+            bool hasValue() const;
+            JSONValue popValue();
+            void reset();
+
+        private:
+            std::string m_buffer;
+            std::vector<JSONValue> m_completedValues;
+            int m_braceDepth;
+            int m_bracketDepth;
+            bool m_inString;
+        };
+
+    private:
+        JSONType m_type;
+        std::variant<bool, double, std::string, JSONArray, JSONObject> m_data;
+
+        std::string escapeString(const std::string& str) const;
     };
 
     class JSONParseError : public std::runtime_error {
     public:
         explicit JSONParseError(const std::string& msg) : std::runtime_error(msg) {}
+    };
+
+    class JSONSchemaError : public std::runtime_error {
+    public:
+        explicit JSONSchemaError(const std::string& msg) : std::runtime_error(msg) {}
     };
 
 }
