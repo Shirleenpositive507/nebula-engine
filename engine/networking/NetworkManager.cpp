@@ -2,6 +2,9 @@
 #include <chrono>
 #include <cstring>
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
+#include <cmath>
 
 namespace nebula {
 
@@ -23,7 +26,22 @@ namespace nebula {
         , m_statsIntervalStart(0)
         , m_bytesSentThisInterval(0)
         , m_bytesReceivedThisInterval(0)
+        , m_autoReconnect(true)
+        , m_maxReconnectionAttempts(DEFAULT_MAX_RECONNECT_ATTEMPTS)
+        , m_reconnectDelayMs(DEFAULT_RECONNECT_DELAY_MS)
+        , m_lastReconnectTime(0)
+        , m_reconnectionAttempts(0)
+        , m_lastPort(0)
+        , m_maxPoolSize(DEFAULT_POOL_SIZE)
+        , m_encryptionEnabled(false)
+        , m_bandwidthLimitBytesPerSec(0)
+        , m_bandwidthUsedThisSecond(0)
+        , m_bandwidthIntervalStart(0)
+        , m_latencyJitterEnabled(true)
+        , m_lastLatencyMs(0.0)
+        , m_lastJitterMs(0.0)
     {
+        m_latencyHistory.resize(LATENCY_HISTORY_SIZE, 0.0);
     }
 
     NetworkManager::~NetworkManager() {
@@ -41,6 +59,10 @@ namespace nebula {
         m_statsIntervalStart = m_lastStatsReset;
         m_bytesSentThisInterval = 0;
         m_bytesReceivedThisInterval = 0;
+        m_bandwidthIntervalStart = m_lastStatsReset;
+        m_bandwidthUsedThisSecond = 0;
+        m_reconnectionAttempts = 0;
+        m_lastReconnectTime = 0;
 
         m_udpSocket.bind(port);
         m_listener.listen(port);
@@ -73,6 +95,14 @@ namespace nebula {
         m_tcpSocket.disconnect();
 
         {
+            std::lock_guard<std::mutex> lock(m_poolMutex);
+            for (auto& pc : m_connectionPool) {
+                pc.socket.disconnect();
+            }
+            m_connectionPool.clear();
+        }
+
+        {
             std::lock_guard<std::mutex> lock(m_outgoingMutex);
             while (!m_outgoingQueue.empty()) m_outgoingQueue.pop();
         }
@@ -95,6 +125,10 @@ namespace nebula {
     bool NetworkManager::connect(const std::string& host, uint16_t port) {
         if (!m_running) return false;
 
+        m_reconnectionAttempts = 0;
+        m_lastHost = host;
+        m_lastPort = port;
+
         bool success = m_tcpSocket.connect(host, port, sf::seconds(5));
         m_connected = success;
 
@@ -103,6 +137,10 @@ namespace nebula {
             connectMsg.setType(MessageType::Connect);
             connectMsg.setID(getNextMessageID());
             send(connectMsg);
+            m_lastReconnectTime = getCurrentTimeMs();
+
+            std::lock_guard<std::mutex> lock(m_statsMutex);
+            m_stats.activeConnections++;
         }
 
         return success;
@@ -116,11 +154,35 @@ namespace nebula {
             send(disconnectMsg);
             m_tcpSocket.disconnect();
             m_connected = false;
+            m_reconnectionAttempts = 0;
+
+            std::lock_guard<std::mutex> lock(m_statsMutex);
+            if (m_stats.activeConnections > 0) m_stats.activeConnections--;
+        }
+    }
+
+    void NetworkManager::disconnectAll() {
+        disconnect();
+        {
+            std::lock_guard<std::mutex> lock(m_poolMutex);
+            for (auto& pc : m_connectionPool) {
+                pc.socket.disconnect();
+                pc.inUse = false;
+            }
+            m_connectionPool.clear();
         }
     }
 
     bool NetworkManager::send(NetworkMessage& message) {
         if (!m_running || !m_connected) return false;
+
+        if (m_bandwidthLimitBytesPerSec > 0) {
+            uint64_t now = getCurrentTimeMs();
+            if (now - m_bandwidthIntervalStart >= 1000) {
+                m_bandwidthUsedThisSecond = 0;
+                m_bandwidthIntervalStart = now;
+            }
+        }
 
         if (message.getID() == 0) {
             message.setID(getNextMessageID());
@@ -137,9 +199,20 @@ namespace nebula {
 
         Packet packet;
         auto serialized = message.serialize();
+        if (m_encryptionEnabled) {
+            encryptData(serialized);
+        }
         packet.writeInt32(static_cast<int32_t>(serialized.size()));
         for (auto byte : serialized) {
             packet.writeInt8(static_cast<int8_t>(byte));
+        }
+
+        if (m_bandwidthLimitBytesPerSec > 0) {
+            size_t packetSize = serialized.size() + 4;
+            if (m_bandwidthUsedThisSecond + packetSize > m_bandwidthLimitBytesPerSec) {
+                return false;
+            }
+            m_bandwidthUsedThisSecond += packetSize;
         }
 
         bool sent = m_tcpSocket.send(packet);
@@ -150,6 +223,9 @@ namespace nebula {
             m_stats.packetsSent++;
             m_stats.messagesSent++;
             m_bytesSentThisInterval += serialized.size() + 4;
+            if (m_encryptionEnabled) {
+                m_stats.totalBytesEncrypted += serialized.size();
+            }
         }
 
         return sent;
@@ -160,6 +236,9 @@ namespace nebula {
 
         Packet packet;
         auto serialized = message.serialize();
+        if (m_encryptionEnabled) {
+            encryptData(serialized);
+        }
         packet.writeInt32(static_cast<int32_t>(serialized.size()));
         for (auto byte : serialized) {
             packet.writeInt8(static_cast<int8_t>(byte));
@@ -183,7 +262,14 @@ namespace nebula {
 
     NetworkStats NetworkManager::getStats() const {
         std::lock_guard<std::mutex> lock(m_statsMutex);
-        return m_stats;
+        NetworkStats stats = m_stats;
+        stats.latencyMs = m_lastLatencyMs;
+        stats.jitterMs = m_lastJitterMs;
+        {
+            std::lock_guard<std::mutex> poolLock(m_poolMutex);
+            stats.pooledConnections = static_cast<uint32_t>(m_connectionPool.size());
+        }
+        return stats;
     }
 
     void NetworkManager::resetStats() {
@@ -203,6 +289,7 @@ namespace nebula {
         processIncoming();
 
         uint64_t now = getCurrentTimeMs();
+
         if (now - m_statsIntervalStart >= 1000) {
             std::lock_guard<std::mutex> lock(m_statsMutex);
             m_stats.bytesSentPerSecond = m_bytesSentThisInterval;
@@ -212,6 +299,12 @@ namespace nebula {
             m_statsIntervalStart = now;
         }
 
+        if (m_autoReconnect && !m_connected && m_running && !m_lastHost.empty()) {
+            attemptReconnection();
+        }
+
+        manageConnectionPool();
+
         checkTimeouts();
         resendUnacknowledged();
     }
@@ -220,12 +313,17 @@ namespace nebula {
         while (m_threadsRunning) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-            if (!m_running || !m_connected) continue;
+            if (!m_running) continue;
 
-            uint64_t now = getCurrentTimeMs();
-            if (now - m_lastHeartbeatTime >= m_heartbeatInterval) {
-                sendHeartbeat();
-                m_lastHeartbeatTime = now;
+            if (m_connected) {
+                uint64_t now = getCurrentTimeMs();
+                if (now - m_lastHeartbeatTime >= m_heartbeatInterval) {
+                    sendHeartbeat();
+                    m_lastHeartbeatTime = now;
+                }
+                if (m_latencyJitterEnabled) {
+                    measureLatency();
+                }
             }
         }
     }
@@ -265,6 +363,10 @@ namespace nebula {
                 buffer.push_back(static_cast<uint8_t>(packet.readInt8()));
             }
 
+            if (m_encryptionEnabled) {
+                decryptData(buffer);
+            }
+
             NetworkMessage msg;
             if (msg.deserialize(buffer)) {
                 {
@@ -273,6 +375,9 @@ namespace nebula {
                     m_stats.packetsReceived++;
                     m_stats.messagesReceived++;
                     m_bytesReceivedThisInterval += size + 4;
+                    if (m_encryptionEnabled) {
+                        m_stats.totalBytesDecrypted += buffer.size();
+                    }
                 }
 
                 if (m_handler) {
@@ -290,6 +395,10 @@ namespace nebula {
                 buffer.push_back(static_cast<uint8_t>(tcpPacket.readInt8()));
             }
 
+            if (m_encryptionEnabled) {
+                decryptData(buffer);
+            }
+
             NetworkMessage msg;
             if (msg.deserialize(buffer)) {
                 if (msg.getType() == MessageType::Acknowledge) {
@@ -301,6 +410,12 @@ namespace nebula {
                     NetworkMessage pong = NetworkMessage::createPong();
                     pong.setID(msg.getID());
                     send(pong);
+                } else if (msg.getType() == MessageType::Pong) {
+                    if (m_latencyJitterEnabled) {
+                        uint64_t rtt = getCurrentTimeMs() - msg.getID();
+                        double currentLatency = static_cast<double>(rtt);
+                        updateJitter(currentLatency);
+                    }
                 } else {
                     NetworkMessage ack = NetworkMessage::createACK(msg.getID());
                     send(ack);
@@ -311,6 +426,9 @@ namespace nebula {
                         m_stats.packetsReceived++;
                         m_stats.messagesReceived++;
                         m_bytesReceivedThisInterval += size + 4;
+                        if (m_encryptionEnabled) {
+                            m_stats.totalBytesDecrypted += buffer.size();
+                        }
                     }
 
                     if (m_handler) {
@@ -338,6 +456,10 @@ namespace nebula {
                 m_connected = false;
                 m_tcpSocket.disconnect();
 
+                std::lock_guard<std::mutex> statsLock(m_statsMutex);
+                m_stats.packetLoss++;
+                if (m_stats.activeConnections > 0) m_stats.activeConnections--;
+
                 if (m_handler) {
                     NetworkMessage timeoutMsg;
                     timeoutMsg.setType(MessageType::Disconnect);
@@ -361,14 +483,36 @@ namespace nebula {
             if (now - m_lastSendTime[id] >= RESEND_INTERVAL_MS) {
                 if (m_retryCount[id] >= MAX_RETRIES) {
                     toRemove.push_back(id);
+                    {
+                        std::lock_guard<std::mutex> statsLock(m_statsMutex);
+                        m_stats.packetLoss++;
+                    }
                     continue;
+                }
+
+                if (m_bandwidthLimitBytesPerSec > 0) {
+                    if (now - m_bandwidthIntervalStart >= 1000) {
+                        m_bandwidthUsedThisSecond = 0;
+                        m_bandwidthIntervalStart = now;
+                    }
                 }
 
                 Packet packet;
                 auto serialized = entry.second.serialize();
+                if (m_encryptionEnabled) {
+                    encryptData(serialized);
+                }
                 packet.writeInt32(static_cast<int32_t>(serialized.size()));
                 for (auto byte : serialized) {
                     packet.writeInt8(static_cast<int8_t>(byte));
+                }
+
+                if (m_bandwidthLimitBytesPerSec > 0) {
+                    size_t packetSize = serialized.size() + 4;
+                    if (m_bandwidthUsedThisSecond + packetSize > m_bandwidthLimitBytesPerSec) {
+                        continue;
+                    }
+                    m_bandwidthUsedThisSecond += packetSize;
                 }
 
                 if (m_tcpSocket.send(packet)) {
@@ -383,6 +527,150 @@ namespace nebula {
             m_lastSendTime.erase(id);
             m_retryCount.erase(id);
         }
+    }
+
+    void NetworkManager::attemptReconnection() {
+        uint64_t now = getCurrentTimeMs();
+        if (now - m_lastReconnectTime < m_reconnectDelayMs) return;
+        if (m_reconnectionAttempts >= m_maxReconnectionAttempts) return;
+
+        m_lastReconnectTime = now;
+        m_reconnectionAttempts++;
+
+        bool success = m_tcpSocket.connect(m_lastHost, m_lastPort, sf::seconds(3));
+        if (success) {
+            m_connected = true;
+            m_reconnectionAttempts = 0;
+
+            NetworkMessage reconnectMsg;
+            reconnectMsg.setType(MessageType::Connect);
+            reconnectMsg.setID(getNextMessageID());
+            send(reconnectMsg);
+
+            std::lock_guard<std::mutex> lock(m_statsMutex);
+            m_stats.activeConnections++;
+        }
+    }
+
+    void NetworkManager::manageConnectionPool() {
+        std::lock_guard<std::mutex> lock(m_poolMutex);
+        uint64_t now = getCurrentTimeMs();
+
+        m_connectionPool.erase(
+            std::remove_if(m_connectionPool.begin(), m_connectionPool.end(),
+                [now](const PooledConnection& pc) {
+                    return !pc.inUse && (now - pc.createdAt >= POOL_CONNECTION_TTL_MS);
+                }),
+            m_connectionPool.end()
+        );
+
+        while (m_connectionPool.size() < m_maxPoolSize) {
+            PooledConnection pc;
+            pc.host = m_lastHost;
+            pc.port = m_lastPort;
+            pc.inUse = false;
+            pc.lastUsed = now;
+            pc.createdAt = now;
+            m_connectionPool.push_back(std::move(pc));
+        }
+    }
+
+    void NetworkManager::encryptData(std::vector<uint8_t>& data) {
+        if (!m_encryptionEnabled || m_encryptionKey.empty()) return;
+        for (size_t i = 0; i < data.size(); ++i) {
+            data[i] ^= m_encryptionKey[i % m_encryptionKey.size()];
+        }
+    }
+
+    void NetworkManager::decryptData(std::vector<uint8_t>& data) {
+        encryptData(data);
+    }
+
+    void NetworkManager::measureLatency() {
+        NetworkMessage ping = NetworkMessage::createPing();
+        uint32_t id = getNextMessageID();
+        ping.setID(id);
+        send(ping);
+    }
+
+    void NetworkManager::updateJitter(double currentLatency) {
+        m_lastLatencyMs = currentLatency;
+        m_latencyHistory.push_back(currentLatency);
+        if (m_latencyHistory.size() > LATENCY_HISTORY_SIZE) {
+            m_latencyHistory.pop_front();
+        }
+
+        if (m_latencyHistory.size() >= 2) {
+            double sum = 0.0;
+            double prev = m_latencyHistory[0];
+            for (size_t i = 1; i < m_latencyHistory.size(); ++i) {
+                sum += std::abs(m_latencyHistory[i] - prev);
+                prev = m_latencyHistory[i];
+            }
+            m_lastJitterMs = sum / (m_latencyHistory.size() - 1);
+        }
+
+        std::lock_guard<std::mutex> lock(m_statsMutex);
+        m_stats.latencyMs = currentLatency;
+        m_stats.jitterMs = m_lastJitterMs;
+    }
+
+    void NetworkManager::setEncryptionKey(const std::vector<uint8_t>& key) {
+        m_encryptionKey = key;
+    }
+
+    void NetworkManager::enableEncryption(bool enable) {
+        m_encryptionEnabled = enable;
+    }
+
+    bool NetworkManager::isEncryptionEnabled() const {
+        return m_encryptionEnabled;
+    }
+
+    void NetworkManager::setBandwidthLimit(uint64_t bytesPerSecond) {
+        m_bandwidthLimitBytesPerSec = bytesPerSecond;
+    }
+
+    uint64_t NetworkManager::getBandwidthLimit() const {
+        return m_bandwidthLimitBytesPerSec;
+    }
+
+    void NetworkManager::setAutoReconnect(bool enable) {
+        m_autoReconnect = enable;
+        if (!enable) m_reconnectionAttempts = 0;
+    }
+
+    bool NetworkManager::isAutoReconnectEnabled() const {
+        return m_autoReconnect;
+    }
+
+    void NetworkManager::setMaxReconnectionAttempts(uint32_t attempts) {
+        m_maxReconnectionAttempts = attempts;
+    }
+
+    uint32_t NetworkManager::getMaxReconnectionAttempts() const {
+        return m_maxReconnectionAttempts;
+    }
+
+    void NetworkManager::setConnectionPoolSize(uint32_t size) {
+        m_maxPoolSize = size;
+    }
+
+    uint32_t NetworkManager::getConnectionPoolSize() const {
+        return m_maxPoolSize;
+    }
+
+    uint32_t NetworkManager::getActiveConnectionCount() const {
+        std::lock_guard<std::mutex> lock(m_statsMutex);
+        return m_stats.activeConnections;
+    }
+
+    void NetworkManager::enableLatencyJitterMeasurement(bool enable) {
+        m_latencyJitterEnabled = enable;
+    }
+
+    bool NetworkManager::isLatencyJitterMeasurementEnabled() const {
+        return m_latencyJitterEnabled;
     }
 
     uint64_t NetworkManager::getCurrentTimeMs() {
