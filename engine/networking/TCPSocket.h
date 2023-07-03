@@ -2,13 +2,24 @@
 
 #include <SFML/Network/TcpSocket.hpp>
 #include <SFML/Network/TcpListener.hpp>
+#include <SFML/Network/SocketSelector.hpp>
 #include <string>
 #include <functional>
 #include <memory>
+#include <atomic>
 
 namespace nebula {
 
     class Packet;
+
+    enum class SocketOption {
+        TCPNoDelay,
+        KeepAlive,
+        SendBufferSize,
+        RecvBufferSize,
+        ReuseAddress,
+        NonBlocking
+    };
 
     class TCPSocket {
     public:
@@ -37,6 +48,27 @@ namespace nebula {
 
         void setTimeout(sf::Time timeout);
 
+        void setOption(SocketOption option, int value);
+        int getOption(SocketOption option) const;
+
+        void setTcpNoDelay(bool enable);
+        bool getTcpNoDelay() const;
+
+        void setKeepAlive(bool enable);
+        bool getKeepAlive() const;
+
+        void setSendBufferSize(int size);
+        int getSendBufferSize() const;
+
+        void setRecvBufferSize(int size);
+        int getRecvBufferSize() const;
+
+        void setConnectionTimeout(sf::Time timeout);
+        sf::Time getConnectionTimeout() const;
+
+        bool connectNonBlocking(const std::string& host, uint16_t port);
+        bool isNonBlockingConnectComplete() const;
+
         sf::TcpSocket& getHandle() { return m_socket; }
         const sf::TcpSocket& getHandle() const { return m_socket; }
 
@@ -48,9 +80,21 @@ namespace nebula {
                           sf::Time timeout = sf::seconds(5));
         void disconnectAsync(DisconnectCallback callback);
 
+        bool startTLS();
+        bool isTLSEnabled() const;
+
     private:
+        bool applySocketOption(int level, int optname, int value);
+
         sf::TcpSocket m_socket;
         bool m_connected = false;
+        bool m_tlsEnabled = false;
+        bool m_tcpNoDelay = false;
+        bool m_keepAlive = false;
+        int m_sendBufferSize = 0;
+        int m_recvBufferSize = 0;
+        sf::Time m_connectionTimeout = sf::seconds(5);
+        std::atomic<bool> m_nonBlockingConnectInProgress{false};
     };
 
     class TCPListener {
