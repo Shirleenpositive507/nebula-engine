@@ -2,6 +2,8 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
 
 namespace nebula {
 namespace tools {
@@ -13,7 +15,21 @@ Editor::Editor()
     , m_selectedEntityId(-1)
     , m_nextEntityId(1)
     , m_cameraZoom(1.0f)
+    , m_nextDocId(1)
 {
+    m_settings.vsyncEnabled = true;
+    m_settings.showGrid = true;
+    m_settings.showRulers = true;
+    m_settings.snapToGrid = false;
+    m_settings.snapSize = 32.0f;
+    m_settings.fontSize = 13;
+    m_settings.theme = "dark";
+    m_settings.backgroundColor = sf::Color(60, 60, 60);
+    m_settings.gridColor = sf::Color(80, 80, 80, 100);
+    m_settings.cameraPanSpeed = 1.0f;
+    m_settings.cameraZoomSpeed = 1.1f;
+    m_settings.autoSave = true;
+    m_settings.autoSaveInterval = 300.0f;
 }
 
 Editor::~Editor() {
@@ -28,6 +44,11 @@ bool Editor::initialize(sf::RenderWindow& window) {
 
     m_editorCamera.setSize(static_cast<sf::Vector2f>(window.getSize()));
     m_editorCamera.setCenter(0.0f, 0.0f);
+
+    m_layout.hierarchyWidth = 250.0f;
+    m_layout.propertiesWidth = 300.0f;
+    m_layout.assetBrowserHeight = 150.0f;
+    m_layout.consoleHeight = 200.0f;
 
     m_initialized = true;
     return true;
@@ -59,10 +80,10 @@ void Editor::render(sf::RenderWindow& window) {
 
     sf::Sprite viewportSprite = m_viewport.getRenderSprite();
     sf::Vector2u winSize = window.getSize();
-    float guiLeft = 250.0f;
-    float guiRight = 300.0f;
+    float guiLeft = m_layout.hierarchyWidth;
+    float guiRight = m_layout.propertiesWidth;
     float guiTop = 64.0f;
-    float guiBottom = 150.0f;
+    float guiBottom = m_layout.assetBrowserHeight;
     float vpX = guiLeft;
     float vpY = guiTop;
     float vpW = static_cast<float>(winSize.x) - guiLeft - guiRight;
@@ -94,6 +115,18 @@ void Editor::handleShortcuts(const sf::Event& event) {
     if (event.type == sf::Event::KeyPressed) {
         bool ctrl = sf::Keyboard::isKeyPressed(sf::Keyboard::LControl) ||
                     sf::Keyboard::isKeyPressed(sf::Keyboard::RControl);
+        bool shift = sf::Keyboard::isKeyPressed(sf::Keyboard::LShift) ||
+                     sf::Keyboard::isKeyPressed(sf::Keyboard::RShift);
+        bool alt = sf::Keyboard::isKeyPressed(sf::Keyboard::LAlt) ||
+                   sf::Keyboard::isKeyPressed(sf::Keyboard::RAlt);
+
+        for (const auto& sc : m_customShortcuts) {
+            if (sc.key == event.key.code && sc.ctrl == ctrl &&
+                sc.shift == shift && sc.alt == alt) {
+                m_console.print("Shortcut: " + sc.action);
+                return;
+            }
+        }
 
         if (ctrl) {
             switch (event.key.code) {
@@ -179,7 +212,18 @@ bool Editor::loadScene(const std::string& filename) {
         return false;
     }
     m_currentScenePath = filename;
+    m_project.lastScenePath = filename;
     m_console.print("Scene loaded: " + filename);
+
+    auto it = std::find(m_project.recentScenes.begin(), m_project.recentScenes.end(), filename);
+    if (it != m_project.recentScenes.end()) {
+        m_project.recentScenes.erase(it);
+    }
+    m_project.recentScenes.insert(m_project.recentScenes.begin(), filename);
+    if (m_project.recentScenes.size() > 10) {
+        m_project.recentScenes.resize(10);
+    }
+
     return true;
 }
 
@@ -291,8 +335,275 @@ debug::Console& Editor::getConsole() {
     return m_console;
 }
 
+int Editor::createProject(const std::string& name, const std::string& path) {
+    m_project.name = name;
+    m_project.version = "1.0";
+    m_project.author = "User";
+    m_project.lastScenePath.clear();
+    m_project.recentScenes.clear();
+    m_project.openScenes.clear();
+    m_project.activeSceneIndex = -1;
+    m_project.createdAt = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count()
+    );
+    m_project.lastModifiedAt = m_project.createdAt;
+    m_projectFilePath = path + "/" + name + ".nebula";
+    m_console.print("Project created: " + name);
+    return 0;
+}
+
+bool Editor::loadProject(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        m_console.printError("Failed to load project: " + filename);
+        return false;
+    }
+    deserializeProject(file);
+    m_projectFilePath = filename;
+    m_console.print("Project loaded: " + m_project.name);
+    return true;
+}
+
+bool Editor::saveProject() {
+    if (m_projectFilePath.empty()) return false;
+    std::ofstream file(m_projectFilePath);
+    if (!file.is_open()) {
+        m_console.printError("Failed to save project");
+        return false;
+    }
+    serializeProject(file);
+    m_console.print("Project saved: " + m_project.name);
+    return true;
+}
+
+bool Editor::saveProjectAs(const std::string& filename) {
+    m_projectFilePath = filename;
+    return saveProject();
+}
+
+EditorProject& Editor::getProject() {
+    return m_project;
+}
+
+const EditorProject& Editor::getProject() const {
+    return m_project;
+}
+
+void Editor::loadSettings(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) return;
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);
+        std::string key;
+        if (std::getline(iss, key, '=')) {
+            std::string value;
+            if (std::getline(iss, value)) {
+                if (key == "vsync") m_settings.vsyncEnabled = (value == "true");
+                else if (key == "showGrid") m_settings.showGrid = (value == "true");
+                else if (key == "showRulers") m_settings.showRulers = (value == "true");
+                else if (key == "snapToGrid") m_settings.snapToGrid = (value == "true");
+                else if (key == "snapSize") m_settings.snapSize = std::stof(value);
+                else if (key == "fontSize") m_settings.fontSize = std::stoul(value);
+                else if (key == "theme") m_settings.theme = value;
+                else if (key == "autoSave") m_settings.autoSave = (value == "true");
+            }
+        }
+    }
+    m_settingsFilePath = filename;
+}
+
+void Editor::saveSettings(const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) return;
+    file << "vsync=" << (m_settings.vsyncEnabled ? "true" : "false") << "\n";
+    file << "showGrid=" << (m_settings.showGrid ? "true" : "false") << "\n";
+    file << "showRulers=" << (m_settings.showRulers ? "true" : "false") << "\n";
+    file << "snapToGrid=" << (m_settings.snapToGrid ? "true" : "false") << "\n";
+    file << "snapSize=" << m_settings.snapSize << "\n";
+    file << "fontSize=" << m_settings.fontSize << "\n";
+    file << "theme=" << m_settings.theme << "\n";
+    file << "autoSave=" << (m_settings.autoSave ? "true" : "false") << "\n";
+    m_settingsFilePath = filename;
+}
+
+EditorSettings& Editor::getSettings() {
+    return m_settings;
+}
+
+const EditorSettings& Editor::getSettings() const {
+    return m_settings;
+}
+
+void Editor::loadLayout(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) return;
+    std::string line;
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);
+        std::string key;
+        if (std::getline(iss, key, '=')) {
+            std::string value;
+            if (std::getline(iss, value)) {
+                if (key == "hierarchyWidth") m_layout.hierarchyWidth = std::stof(value);
+                else if (key == "propertiesWidth") m_layout.propertiesWidth = std::stof(value);
+                else if (key == "assetBrowserHeight") m_layout.assetBrowserHeight = std::stof(value);
+                else if (key == "consoleHeight") m_layout.consoleHeight = std::stof(value);
+            }
+        }
+    }
+    m_layoutFilePath = filename;
+}
+
+void Editor::saveLayout(const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) return;
+    file << "hierarchyWidth=" << m_layout.hierarchyWidth << "\n";
+    file << "propertiesWidth=" << m_layout.propertiesWidth << "\n";
+    file << "assetBrowserHeight=" << m_layout.assetBrowserHeight << "\n";
+    file << "consoleHeight=" << m_layout.consoleHeight << "\n";
+    m_layoutFilePath = filename;
+}
+
+EditorLayout& Editor::getLayout() {
+    return m_layout;
+}
+
+const EditorLayout& Editor::getLayout() const {
+    return m_layout;
+}
+
+void Editor::setCustomShortcut(const std::string& action, sf::Keyboard::Key key,
+                                bool ctrl, bool shift, bool alt) {
+    for (auto& sc : m_customShortcuts) {
+        if (sc.action == action) {
+            sc.key = key;
+            sc.ctrl = ctrl;
+            sc.shift = shift;
+            sc.alt = alt;
+            return;
+        }
+    }
+    m_customShortcuts.push_back({key, ctrl, shift, alt, action});
+}
+
+void Editor::removeCustomShortcut(const std::string& action) {
+    m_customShortcuts.erase(
+        std::remove_if(m_customShortcuts.begin(), m_customShortcuts.end(),
+            [&action](const EditorShortcut& s) { return s.action == action; }),
+        m_customShortcuts.end()
+    );
+}
+
+const std::vector<EditorShortcut>& Editor::getCustomShortcuts() const {
+    return m_customShortcuts;
+}
+
+int Editor::openSceneDocument(const std::string& name) {
+    SceneDocument doc;
+    doc.id = m_nextDocId++;
+    doc.name = name;
+    doc.modified = false;
+    doc.active = true;
+    m_openDocuments.push_back(doc);
+    return doc.id;
+}
+
+void Editor::closeSceneDocument(int docId) {
+    m_openDocuments.erase(
+        std::remove_if(m_openDocuments.begin(), m_openDocuments.end(),
+            [docId](const SceneDocument& d) { return d.id == docId; }),
+        m_openDocuments.end()
+    );
+}
+
+void Editor::setActiveSceneDocument(int docId) {
+    for (auto& doc : m_openDocuments) {
+        doc.active = (doc.id == docId);
+    }
+}
+
+SceneDocument* Editor::getActiveSceneDocument() {
+    for (auto& doc : m_openDocuments) {
+        if (doc.active) return &doc;
+    }
+    return m_openDocuments.empty() ? nullptr : &m_openDocuments[0];
+}
+
+std::vector<SceneDocument>& Editor::getOpenDocuments() {
+    return m_openDocuments;
+}
+
+int Editor::getDocumentCount() const {
+    return static_cast<int>(m_openDocuments.size());
+}
+
+void Editor::setCustomShortcutFile(const std::string& filename) {
+    m_shortcutFilePath = filename;
+}
+
+void Editor::serializeProject(std::ofstream& file) {
+    file << "[Project]\n";
+    file << "name=" << m_project.name << "\n";
+    file << "version=" << m_project.version << "\n";
+    file << "author=" << m_project.author << "\n";
+    file << "lastScene=" << m_project.lastScenePath << "\n";
+    file << "createdAt=" << m_project.createdAt << "\n";
+    file << "lastModified=" << m_project.lastModifiedAt << "\n";
+    file << "[RecentScenes]\n";
+    for (const auto& scene : m_project.recentScenes) {
+        file << "scene=" << scene << "\n";
+    }
+    file << "[OpenScenes]\n";
+    for (const auto& scene : m_project.openScenes) {
+        file << "scene=" << scene << "\n";
+    }
+}
+
+void Editor::deserializeProject(std::ifstream& file) {
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line == "[Project]") continue;
+        if (line == "[RecentScenes]") break;
+        std::istringstream iss(line);
+        std::string key;
+        if (std::getline(iss, key, '=')) {
+            std::string value;
+            if (std::getline(iss, value)) {
+                if (key == "name") m_project.name = value;
+                else if (key == "version") m_project.version = value;
+                else if (key == "author") m_project.author = value;
+                else if (key == "lastScene") m_project.lastScenePath = value;
+                else if (key == "createdAt") m_project.createdAt = std::stoull(value);
+                else if (key == "lastModified") m_project.lastModifiedAt = std::stoull(value);
+            }
+        }
+    }
+    while (std::getline(file, line)) {
+        if (line == "[OpenScenes]") break;
+        std::string value = line.substr(line.find('=') + 1);
+        m_project.recentScenes.push_back(value);
+    }
+    while (std::getline(file, line)) {
+        std::string value = line.substr(line.find('=') + 1);
+        m_project.openScenes.push_back(value);
+    }
+}
+
 void Editor::shutdown() {
     if (!m_initialized) return;
+
+    if (!m_projectFilePath.empty()) {
+        saveProject();
+    }
+    if (!m_settingsFilePath.empty()) {
+        saveSettings(m_settingsFilePath);
+    }
+    if (!m_layoutFilePath.empty()) {
+        saveLayout(m_layoutFilePath);
+    }
 
     m_viewport.shutdown();
     m_gui.shutdown();
@@ -301,6 +612,9 @@ void Editor::shutdown() {
 
     while (!m_undoStack.empty()) m_undoStack.pop();
     while (!m_redoStack.empty()) m_redoStack.pop();
+
+    m_openDocuments.clear();
+    m_customShortcuts.clear();
 
     m_initialized = false;
 }
