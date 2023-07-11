@@ -31,6 +31,50 @@ struct AssetEntry {
     std::vector<AssetEntry> children;
 };
 
+struct ColorPickerState {
+    bool open;
+    sf::Color currentColor;
+    sf::Color previewColor;
+    float hue;
+    float saturation;
+    float value;
+    float alpha;
+    int r, g, b, a;
+};
+
+struct AssetPreviewInfo {
+    std::string name;
+    std::string type;
+    std::string path;
+    sf::Texture previewTexture;
+    bool textureLoaded;
+    int width;
+    int height;
+    size_t fileSize;
+};
+
+struct AnimationPreviewState {
+    bool playing;
+    float currentTime;
+    float duration;
+    int currentFrame;
+    int totalFrames;
+    std::string animationName;
+    float playbackSpeed;
+    bool looping;
+};
+
+struct SceneStats {
+    int totalEntities;
+    int visibleEntities;
+    int drawCalls;
+    int triangles;
+    int vertices;
+    int lights;
+    int cameras;
+    float sceneLoadTime;
+};
+
 class EditorGUI {
 public:
     EditorGUI();
@@ -52,12 +96,35 @@ public:
 
     std::string getSearchFilter() const;
 
+    void openColorPicker(const std::string& label, const sf::Color& initialColor);
+    bool isColorPickerOpen() const;
+    bool getColorPickerResult(sf::Color& outColor) const;
+    void closeColorPicker();
+
+    void setAssetPreview(const AssetPreviewInfo& preview);
+    void clearAssetPreview();
+
+    void setAnimationPreview(const AnimationPreviewState& state);
+    AnimationPreviewState& getAnimationPreview();
+    void updateAnimationPreview(float dt);
+
+    void setSceneStats(const SceneStats& stats);
+    SceneStats getSceneStats() const;
+
+    bool isConsolePanelVisible() const;
+    void setConsolePanelVisible(bool visible);
+
 private:
     void renderSceneHierarchy(sf::RenderWindow& window);
     void renderProperties(sf::RenderWindow& window);
     void renderAssetBrowser(sf::RenderWindow& window);
     void renderToolbar(sf::RenderWindow& window);
     void renderMenuBar(sf::RenderWindow& window);
+    void renderColorPicker(sf::RenderWindow& window);
+    void renderAssetPreviewPanel(sf::RenderWindow& window);
+    void renderAnimationPreview(sf::RenderWindow& window);
+    void renderSceneStatsPanel(sf::RenderWindow& window);
+    void renderConsolePanel(sf::RenderWindow& window);
 
     void drawEntityTreeNode(sf::RenderWindow& window, const EntityNode& node, float& yPos);
     void drawComponentEditor(sf::RenderWindow& window, const ComponentInfo& comp, float& yPos);
@@ -79,7 +146,6 @@ private:
     char m_filterBuffer[256];
     int m_filterCursor;
 
-    // Layout state
     float m_hierarchyWidth;
     float m_propertiesWidth;
     float m_assetBrowserHeight;
@@ -88,6 +154,18 @@ private:
 
     sf::RectangleShape m_panelBg;
     sf::RectangleShape m_divider;
+
+    ColorPickerState m_colorPicker;
+    bool m_colorPickerResultReady;
+    sf::Color m_colorPickerResult;
+
+    AssetPreviewInfo m_assetPreview;
+    bool m_hasAssetPreview;
+
+    AnimationPreviewState m_animationPreview;
+    SceneStats m_sceneStats;
+
+    bool m_consolePanelVisible;
 };
 
 } // namespace editor
