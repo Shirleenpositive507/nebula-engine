@@ -2,6 +2,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 
 namespace nebula {
 namespace tools {
@@ -19,8 +20,20 @@ EditorGUI::EditorGUI()
     , m_assetBrowserHeight(150.0f)
     , m_toolbarHeight(40.0f)
     , m_menuBarHeight(24.0f)
+    , m_colorPickerResultReady(false)
+    , m_hasAssetPreview(false)
+    , m_consolePanelVisible(true)
 {
     std::memset(m_filterBuffer, 0, sizeof(m_filterBuffer));
+    m_colorPicker.open = false;
+    m_animationPreview.playing = false;
+    m_animationPreview.currentTime = 0.0f;
+    m_animationPreview.duration = 1.0f;
+    m_animationPreview.currentFrame = 0;
+    m_animationPreview.totalFrames = 1;
+    m_animationPreview.playbackSpeed = 1.0f;
+    m_animationPreview.looping = true;
+    m_sceneStats = {};
 }
 
 EditorGUI::~EditorGUI() {
@@ -37,6 +50,20 @@ void EditorGUI::init(sf::RenderWindow& window) {
 }
 
 void EditorGUI::update(float dt) {
+    if (m_animationPreview.playing) {
+        m_animationPreview.currentTime += dt * m_animationPreview.playbackSpeed;
+        if (m_animationPreview.currentTime >= m_animationPreview.duration) {
+            if (m_animationPreview.looping) {
+                m_animationPreview.currentTime = std::fmod(m_animationPreview.currentTime, m_animationPreview.duration);
+            } else {
+                m_animationPreview.currentTime = m_animationPreview.duration;
+                m_animationPreview.playing = false;
+            }
+        }
+        m_animationPreview.currentFrame = static_cast<int>(
+            (m_animationPreview.currentTime / m_animationPreview.duration) * m_animationPreview.totalFrames
+        );
+    }
 }
 
 void EditorGUI::render(sf::RenderWindow& window) {
@@ -44,7 +71,14 @@ void EditorGUI::render(sf::RenderWindow& window) {
     renderToolbar(window);
     renderSceneHierarchy(window);
     renderProperties(window);
+    renderAssetPreviewPanel(window);
+    renderAnimationPreview(window);
+    renderSceneStatsPanel(window);
+    renderConsolePanel(window);
     renderAssetBrowser(window);
+    if (m_colorPicker.open) {
+        renderColorPicker(window);
+    }
 }
 
 void EditorGUI::renderMenuBar(sf::RenderWindow& window) {
@@ -86,12 +120,6 @@ void EditorGUI::renderToolbar(sf::RenderWindow& window) {
     m_panelBg.setSize(sf::Vector2f(static_cast<float>(winSize.x), m_toolbarHeight));
     m_panelBg.setFillColor(sf::Color(35, 35, 35));
     window.draw(m_panelBg);
-
-    struct ToolButton {
-        std::string label;
-        bool active;
-        std::function<void()> action;
-    };
 
     float cx = 10.0f;
     float cy = yStart + 5.0f;
@@ -300,6 +328,260 @@ void EditorGUI::drawComponentEditor(sf::RenderWindow& window, const ComponentInf
     yPos += 28;
 }
 
+void EditorGUI::renderColorPicker(sf::RenderWindow& window) {
+    sf::Vector2u winSize = window.getSize();
+    float pickerW = 280.0f, pickerH = 320.0f;
+    float px = (static_cast<float>(winSize.x) - pickerW) / 2.0f;
+    float py = (static_cast<float>(winSize.y) - pickerH) / 2.0f;
+
+    sf::RectangleShape bg(sf::Vector2f(pickerW, pickerH));
+    bg.setPosition(px, py);
+    bg.setFillColor(sf::Color(40, 40, 40, 240));
+    bg.setOutlineThickness(2);
+    bg.setOutlineColor(sf::Color(100, 100, 100));
+    window.draw(bg);
+
+    sf::Text title;
+    title.setFont(m_font);
+    title.setString("Color Picker");
+    title.setCharacterSize(m_fontSize + 2);
+    title.setFillColor(sf::Color::White);
+    title.setPosition(px + 10, py + 8);
+    window.draw(title);
+
+    sf::RectangleShape previewSwatch(sf::Vector2f(60, 30));
+    previewSwatch.setPosition(px + 200, py + 8);
+    previewSwatch.setFillColor(m_colorPicker.previewColor);
+    window.draw(previewSwatch);
+
+    float cy = py + 40;
+    auto drawSlider = [&](const std::string& label, int& val, int minV, int maxV, sf::Color color) {
+        sf::Text labelText;
+        labelText.setFont(m_font);
+        labelText.setString(label + ": " + std::to_string(val));
+        labelText.setCharacterSize(m_fontSize - 1);
+        labelText.setFillColor(sf::Color(200, 200, 200));
+        labelText.setPosition(px + 10, cy);
+        window.draw(labelText);
+
+        sf::RectangleShape sliderBg(sf::Vector2f(180, 12));
+        sliderBg.setPosition(px + 80, cy + 2);
+        sliderBg.setFillColor(sf::Color(30, 30, 30));
+        window.draw(sliderBg);
+
+        float t = static_cast<float>(val - minV) / static_cast<float>(maxV - minV);
+        sf::RectangleShape sliderFill(sf::Vector2f(t * 180, 12));
+        sliderFill.setPosition(px + 80, cy + 2);
+        sliderFill.setFillColor(color);
+        window.draw(sliderFill);
+
+        cy += 22;
+    };
+
+    drawSlider("R", m_colorPicker.r, 0, 255, sf::Color::Red);
+    drawSlider("G", m_colorPicker.g, 0, 255, sf::Color::Green);
+    drawSlider("B", m_colorPicker.b, 0, 255, sf::Color::Blue);
+    drawSlider("A", m_colorPicker.a, 0, 255, sf::Color(180, 180, 180));
+
+    m_colorPicker.previewColor = sf::Color(
+        static_cast<sf::Uint8>(m_colorPicker.r),
+        static_cast<sf::Uint8>(m_colorPicker.g),
+        static_cast<sf::Uint8>(m_colorPicker.b),
+        static_cast<sf::Uint8>(m_colorPicker.a)
+    );
+
+    sf::RectangleShape applyBtn(sf::Vector2f(80, 24));
+    applyBtn.setPosition(px + 50, cy + 10);
+    applyBtn.setFillColor(sf::Color(60, 120, 60));
+    window.draw(applyBtn);
+    sf::Text applyText;
+    applyText.setFont(m_font);
+    applyText.setString("Apply");
+    applyText.setCharacterSize(m_fontSize);
+    applyText.setFillColor(sf::Color::White);
+    applyText.setPosition(px + 68, cy + 12);
+    window.draw(applyText);
+}
+
+void EditorGUI::renderAssetPreviewPanel(sf::RenderWindow& window) {
+    if (!m_hasAssetPreview) return;
+
+    sf::Vector2u winSize = window.getSize();
+    float panelW = 200.0f;
+    float panelH = 180.0f;
+    float px = static_cast<float>(winSize.x) - m_propertiesWidth - panelW - 10.0f;
+    float py = m_menuBarHeight + m_toolbarHeight + 10.0f;
+
+    m_panelBg.setPosition(px, py);
+    m_panelBg.setSize(sf::Vector2f(panelW, panelH));
+    m_panelBg.setFillColor(sf::Color(25, 25, 30, 220));
+    window.draw(m_panelBg);
+
+    sf::Text header;
+    header.setFont(m_font);
+    header.setString("Preview: " + m_assetPreview.name);
+    header.setCharacterSize(m_fontSize - 1);
+    header.setFillColor(sf::Color(255, 200, 100));
+    header.setPosition(px + 5, py + 3);
+    window.draw(header);
+
+    sf::Text info;
+    info.setFont(m_font);
+    std::string infoStr = m_assetPreview.type + " | " +
+        std::to_string(m_assetPreview.width) + "x" + std::to_string(m_assetPreview.height);
+    info.setString(infoStr);
+    info.setCharacterSize(m_fontSize - 2);
+    info.setFillColor(sf::Color(150, 150, 150));
+    info.setPosition(px + 5, py + 22);
+    window.draw(info);
+
+    if (m_assetPreview.textureLoaded) {
+        sf::Sprite previewSprite(m_assetPreview.previewTexture);
+        sf::FloatRect spriteBounds = previewSprite.getLocalBounds();
+        float scale = std::min((panelW - 20) / spriteBounds.width,
+                               (panelH - 50) / spriteBounds.height);
+        previewSprite.setScale(scale, scale);
+        previewSprite.setPosition(px + 10, py + 40);
+        window.draw(previewSprite);
+    } else {
+        sf::Text noPreview;
+        noPreview.setFont(m_font);
+        noPreview.setString("No preview available");
+        noPreview.setCharacterSize(m_fontSize - 1);
+        noPreview.setFillColor(sf::Color(100, 100, 100));
+        noPreview.setPosition(px + 30, py + panelH / 2 - 10);
+        window.draw(noPreview);
+    }
+}
+
+void EditorGUI::renderAnimationPreview(sf::RenderWindow& window) {
+    sf::Vector2u winSize = window.getSize();
+    float panelW = 250.0f;
+    float panelH = 120.0f;
+    float px = static_cast<float>(winSize.x) - m_propertiesWidth - panelW - 10.0f;
+    float py = m_menuBarHeight + m_toolbarHeight + 200.0f;
+
+    m_panelBg.setPosition(px, py);
+    m_panelBg.setSize(sf::Vector2f(panelW, panelH));
+    m_panelBg.setFillColor(sf::Color(25, 25, 30, 220));
+    window.draw(m_panelBg);
+
+    sf::Text header;
+    header.setFont(m_font);
+    header.setString("Animation: " + m_animationPreview.animationName);
+    header.setCharacterSize(m_fontSize - 1);
+    header.setFillColor(sf::Color(255, 200, 100));
+    header.setPosition(px + 5, py + 3);
+    window.draw(header);
+
+    sf::Text info;
+    info.setFont(m_font);
+    std::string infoStr = "Frame " + std::to_string(m_animationPreview.currentFrame + 1) +
+        "/" + std::to_string(m_animationPreview.totalFrames) +
+        " | " + std::to_string(static_cast<int>(m_animationPreview.currentTime * 100) / 100.0f) + "s";
+    info.setString(infoStr);
+    info.setCharacterSize(m_fontSize - 2);
+    info.setFillColor(sf::Color(150, 150, 150));
+    info.setPosition(px + 5, py + 22);
+    window.draw(info);
+
+    sf::RectangleShape timeline(sf::Vector2f(panelW - 20, 8));
+    timeline.setPosition(px + 10, py + 50);
+    timeline.setFillColor(sf::Color(40, 40, 40));
+    window.draw(timeline);
+
+    float progress = m_animationPreview.duration > 0 ? m_animationPreview.currentTime / m_animationPreview.duration : 0;
+    sf::RectangleShape progressFill(sf::Vector2f((panelW - 20) * progress, 8));
+    progressFill.setPosition(px + 10, py + 50);
+    progressFill.setFillColor(sf::Color(100, 200, 100));
+    window.draw(progressFill);
+
+    sf::Text btnLabel;
+    btnLabel.setFont(m_font);
+    btnLabel.setString(m_animationPreview.playing ? "Pause" : "Play");
+    btnLabel.setCharacterSize(m_fontSize);
+    btnLabel.setFillColor(sf::Color::White);
+    btnLabel.setPosition(px + 10, py + 70);
+    window.draw(btnLabel);
+
+    std::string loopText = m_animationPreview.looping ? "Loop: On" : "Loop: Off";
+    sf::Text loopLabel;
+    loopLabel.setFont(m_font);
+    loopLabel.setString(loopText);
+    loopLabel.setCharacterSize(m_fontSize - 1);
+    loopLabel.setFillColor(sf::Color(150, 150, 200));
+    loopLabel.setPosition(px + 80, py + 70);
+    window.draw(loopLabel);
+}
+
+void EditorGUI::renderSceneStatsPanel(sf::RenderWindow& window) {
+    sf::Vector2u winSize = window.getSize();
+    float panelW = 200.0f;
+    float panelH = 160.0f;
+    float px = static_cast<float>(winSize.x) - m_propertiesWidth - panelW - 10.0f;
+    float py = m_menuBarHeight + m_toolbarHeight + 330.0f;
+
+    m_panelBg.setPosition(px, py);
+    m_panelBg.setSize(sf::Vector2f(panelW, panelH));
+    m_panelBg.setFillColor(sf::Color(25, 25, 30, 220));
+    window.draw(m_panelBg);
+
+    sf::Text header;
+    header.setFont(m_font);
+    header.setString("Scene Stats");
+    header.setCharacterSize(m_fontSize);
+    header.setFillColor(sf::Color(255, 200, 100));
+    header.setPosition(px + 5, py + 3);
+    window.draw(header);
+
+    auto drawStat = [&](const std::string& label, const std::string& value, float yOff) {
+        sf::Text statText;
+        statText.setFont(m_font);
+        statText.setString(label + ": " + value);
+        statText.setCharacterSize(m_fontSize - 1);
+        statText.setFillColor(sf::Color(180, 180, 180));
+        statText.setPosition(px + 8, py + yOff);
+        window.draw(statText);
+    };
+
+    drawStat("Entities", std::to_string(m_sceneStats.totalEntities), 25);
+    drawStat("Visible", std::to_string(m_sceneStats.visibleEntities), 43);
+    drawStat("Draw Calls", std::to_string(m_sceneStats.drawCalls), 61);
+    drawStat("Triangles", std::to_string(m_sceneStats.triangles), 79);
+    drawStat("Vertices", std::to_string(m_sceneStats.vertices), 97);
+    drawStat("Lights", std::to_string(m_sceneStats.lights), 115);
+    drawStat("Cameras", std::to_string(m_sceneStats.cameras), 133);
+}
+
+void EditorGUI::renderConsolePanel(sf::RenderWindow& window) {
+    if (!m_consolePanelVisible) return;
+
+    sf::Vector2u winSize = window.getSize();
+    float panelH = 100.0f;
+    float py = static_cast<float>(winSize.y) - m_assetBrowserHeight - panelH - 5.0f;
+
+    m_panelBg.setPosition(0, py);
+    m_panelBg.setSize(sf::Vector2f(m_hierarchyWidth, panelH));
+    m_panelBg.setFillColor(sf::Color(20, 20, 22, 220));
+    window.draw(m_panelBg);
+
+    sf::Text header;
+    header.setFont(m_font);
+    header.setString("Console Output");
+    header.setCharacterSize(m_fontSize - 1);
+    header.setFillColor(sf::Color(255, 200, 100));
+    header.setPosition(5, py + 3);
+    window.draw(header);
+
+    sf::Text placeholder;
+    placeholder.setFont(m_font);
+    placeholder.setString("Console panel (hooked to Logger)");
+    placeholder.setCharacterSize(m_fontSize - 2);
+    placeholder.setFillColor(sf::Color(100, 100, 100));
+    placeholder.setPosition(5, py + 25);
+    window.draw(placeholder);
+}
+
 void EditorGUI::renderAssetBrowser(sf::RenderWindow& window) {
     sf::Vector2u winSize = window.getSize();
     float yStart = static_cast<float>(winSize.y) - m_assetBrowserHeight;
@@ -363,6 +645,74 @@ void EditorGUI::setToolbarState(bool playing, bool paused) {
 
 std::string EditorGUI::getSearchFilter() const {
     return m_searchFilter;
+}
+
+void EditorGUI::openColorPicker(const std::string& label, const sf::Color& initialColor) {
+    m_colorPicker.open = true;
+    m_colorPicker.currentColor = initialColor;
+    m_colorPicker.previewColor = initialColor;
+    m_colorPicker.r = initialColor.r;
+    m_colorPicker.g = initialColor.g;
+    m_colorPicker.b = initialColor.b;
+    m_colorPicker.a = initialColor.a;
+    m_colorPickerResultReady = false;
+}
+
+bool EditorGUI::isColorPickerOpen() const {
+    return m_colorPicker.open;
+}
+
+bool EditorGUI::getColorPickerResult(sf::Color& outColor) const {
+    if (m_colorPickerResultReady) {
+        outColor = m_colorPickerResult;
+        return true;
+    }
+    return false;
+}
+
+void EditorGUI::closeColorPicker() {
+    m_colorPicker.open = false;
+    m_colorPickerResult = m_colorPicker.previewColor;
+    m_colorPickerResultReady = true;
+}
+
+void EditorGUI::setAssetPreview(const AssetPreviewInfo& preview) {
+    m_assetPreview = preview;
+    m_hasAssetPreview = true;
+}
+
+void EditorGUI::clearAssetPreview() {
+    m_hasAssetPreview = false;
+}
+
+void EditorGUI::setAnimationPreview(const AnimationPreviewState& state) {
+    m_animationPreview = state;
+}
+
+AnimationPreviewState& EditorGUI::getAnimationPreview() {
+    return m_animationPreview;
+}
+
+void EditorGUI::updateAnimationPreview(float dt) {
+    if (m_animationPreview.playing) {
+        m_animationPreview.currentTime += dt;
+    }
+}
+
+void EditorGUI::setSceneStats(const SceneStats& stats) {
+    m_sceneStats = stats;
+}
+
+SceneStats EditorGUI::getSceneStats() const {
+    return m_sceneStats;
+}
+
+bool EditorGUI::isConsolePanelVisible() const {
+    return m_consolePanelVisible;
+}
+
+void EditorGUI::setConsolePanelVisible(bool visible) {
+    m_consolePanelVisible = visible;
 }
 
 void EditorGUI::shutdown() {
