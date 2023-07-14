@@ -16,7 +16,16 @@ EditorViewport::EditorViewport()
     , m_rulersEnabled(true)
     , m_panning(false)
     , m_selecting(false)
+    , m_renderMode(ViewportRenderMode::Shaded)
+    , m_gizmoEnabled(true)
+    , m_activeCameraIndex(-1)
+    , m_nextCameraId(0)
 {
+    m_gizmo.active = false;
+    m_gizmo.type = 0;
+    m_gizmo.axis = -1;
+    m_gizmo.dragging = false;
+    m_gizmo.snapStep = m_snapSize;
 }
 
 EditorViewport::~EditorViewport() {
@@ -34,10 +43,30 @@ void EditorViewport::init(unsigned int width, unsigned int height) {
 }
 
 void EditorViewport::update(float dt) {
+    if (m_gizmo.dragging) {
+        sf::Vector2i mousePos = sf::Mouse::getPosition(m_renderTexture);
+        m_gizmo.currentPos = screenToWorld(mousePos);
+    }
 }
 
 void EditorViewport::render(const std::vector<SelectableObject>& objects) {
-    m_renderTexture.clear(sf::Color(60, 60, 60));
+    sf::Color clearColor;
+    switch (m_renderMode) {
+        case ViewportRenderMode::Wireframe:
+            clearColor = sf::Color(20, 20, 20);
+            break;
+        case ViewportRenderMode::LightingOnly:
+            clearColor = sf::Color(10, 10, 30);
+            break;
+        case ViewportRenderMode::CollisionDebug:
+            clearColor = sf::Color(15, 15, 25);
+            break;
+        default:
+            clearColor = sf::Color(60, 60, 60);
+            break;
+    }
+
+    m_renderTexture.clear(clearColor);
     m_renderTexture.setView(m_view);
 
     if (m_gridEnabled) {
@@ -45,7 +74,16 @@ void EditorViewport::render(const std::vector<SelectableObject>& objects) {
     }
 
     renderOriginAxes(m_renderTexture);
+
+    if (m_renderMode == ViewportRenderMode::Wireframe) {
+        renderWireframeOverlay(m_renderTexture);
+    }
+
     renderSelection(m_renderTexture, objects);
+
+    if (m_gizmoEnabled && !m_selectedIds.empty()) {
+        renderGizmo(m_renderTexture);
+    }
 
     if (m_rulersEnabled) {
         renderRulers(m_renderTexture);
@@ -68,7 +106,6 @@ void EditorViewport::renderGrid(sf::RenderWindow& window) {
     float startY = std::floor(topLeft.y / gridSpacing) * gridSpacing;
 
     sf::Color gridColor(80, 80, 80, 100);
-    sf::Color majorGridColor(100, 100, 100, 150);
 
     for (float x = startX; x <= bottomRight.x; x += gridSpacing) {
         sf::Vertex line[] = {
@@ -147,6 +184,82 @@ void EditorViewport::renderSelection(sf::RenderWindow& window, const std::vector
     }
 }
 
+void EditorViewport::renderGizmo(sf::RenderWindow& window) {
+    sf::Vector2f center = m_gizmo.currentPos;
+    if (!m_gizmo.dragging) {
+        center = sf::Vector2f(0, 0);
+    }
+
+    float gizmoLength = 40.0f * m_zoomLevel;
+    float arrowSize = 8.0f * m_zoomLevel;
+
+    auto drawAxis = [&](sf::Vector2f dir, sf::Color color, bool highlighted) {
+        sf::Vector2f end = center + dir * gizmoLength;
+        sf::Vertex line[] = {
+            sf::Vertex(center, highlighted ? sf::Color::White : color),
+            sf::Vertex(end, highlighted ? sf::Color::White : color)
+        };
+        window.draw(line, 2, sf::Lines);
+
+        sf::ConvexShape arrow(3);
+        arrow.setPoint(0, end);
+        sf::Vector2f perp(-dir.y, dir.x);
+        arrow.setPoint(1, end - dir * arrowSize + perp * arrowSize * 0.5f);
+        arrow.setPoint(2, end - dir * arrowSize - perp * arrowSize * 0.5f);
+        arrow.setFillColor(highlighted ? sf::Color::White : color);
+        window.draw(arrow);
+    };
+
+    drawAxis(sf::Vector2f(1, 0), sf::Color::Red, m_gizmo.axis == 0);
+    drawAxis(sf::Vector2f(0, -1), sf::Color::Green, m_gizmo.axis == 1);
+
+    sf::CircleStyle rotateCircle(20.0f * m_zoomLevel);
+    rotateCircle.setFillColor(sf::Color::Transparent);
+    rotateCircle.setOutlineColor(m_gizmo.axis == 2 ? sf::Color::White : sf::Color::Blue);
+    rotateCircle.setOutlineThickness(2.0f);
+    rotateCircle.setPosition(center.x - 20.0f * m_zoomLevel, center.y - 20.0f * m_zoomLevel);
+    window.draw(rotateCircle);
+
+    sf::Text gizmoLabel;
+    gizmoLabel.setFont(m_font);
+    gizmoLabel.setCharacterSize(10);
+    gizmoLabel.setFillColor(sf::Color::White);
+
+    gizmoLabel.setString("X");
+    gizmoLabel.setPosition(center.x + gizmoLength + 2, center.y - 6);
+    window.draw(gizmoLabel);
+
+    gizmoLabel.setString("Y");
+    gizmoLabel.setPosition(center.x - 4, center.y - gizmoLength - 12);
+    window.draw(gizmoLabel);
+
+    sf::CircleShape centerDot(4.0f);
+    centerDot.setFillColor(sf::Color::White);
+    centerDot.setPosition(center.x - 4, center.y - 4);
+    window.draw(centerDot);
+}
+
+void EditorViewport::renderWireframeOverlay(sf::RenderWindow& window) {
+    sf::Vector2f viewSize = m_view.getSize();
+    sf::Vector2f viewCenter = m_view.getCenter();
+    sf::Vector2f topLeft = viewCenter - viewSize / 2.0f;
+
+    sf::RectangleShape border(sf::Vector2f(viewSize.x - 2, viewSize.y - 2));
+    border.setPosition(topLeft + sf::Vector2f(1, 1));
+    border.setFillColor(sf::Color::Transparent);
+    border.setOutlineColor(sf::Color(0, 255, 0, 80));
+    border.setOutlineThickness(1.0f);
+    window.draw(border);
+
+    sf::Text wireframeLabel;
+    wireframeLabel.setFont(m_font);
+    wireframeLabel.setString("WIREFRAME MODE");
+    wireframeLabel.setCharacterSize(14);
+    wireframeLabel.setFillColor(sf::Color(0, 255, 0, 120));
+    wireframeLabel.setPosition(topLeft.x + 10, topLeft.y + 30);
+    window.draw(wireframeLabel);
+}
+
 void EditorViewport::renderRulers(sf::RenderWindow& window) {
     sf::Vector2f viewSize = m_view.getSize();
     sf::Vector2f viewCenter = m_view.getCenter();
@@ -200,6 +313,12 @@ void EditorViewport::renderPixelCoordinates(sf::RenderWindow& window) {
 void EditorViewport::handleInput(const sf::Event& event) {
     handleCameraPan(event);
     handleCameraZoom(event);
+    handleGizmoDrag(event);
+    if (event.type == sf::Event::KeyPressed) {
+        if (event.key.code == sf::Keyboard::W) {
+            cycleRenderMode();
+        }
+    }
 }
 
 void EditorViewport::handleCameraPan(const sf::Event& event) {
@@ -284,6 +403,38 @@ void EditorViewport::handleObjectSelection(const sf::Event& event, const std::ve
     }
 }
 
+void EditorViewport::handleGizmoDrag(const sf::Event& event) {
+    if (!m_gizmoEnabled || m_selectedIds.empty()) return;
+
+    if (event.type == sf::Event::MouseButtonPressed) {
+        if (event.mouseButton.button == sf::Mouse::Left) {
+            sf::Vector2f mouseWorld = screenToWorld(sf::Vector2i(event.mouseButton.x, event.mouseButton.y));
+            sf::Vector2f gPos = m_gizmo.currentPos;
+            float threshold = 10.0f * m_zoomLevel;
+
+            if (std::abs(mouseWorld.x - (gPos.x + 40.0f * m_zoomLevel)) < threshold &&
+                std::abs(mouseWorld.y - gPos.y) < threshold) {
+                m_gizmo.active = true;
+                m_gizmo.axis = 0;
+                m_gizmo.dragging = true;
+                m_gizmo.dragStart = mouseWorld;
+            } else if (std::abs(mouseWorld.x - gPos.x) < threshold &&
+                       std::abs(mouseWorld.y - (gPos.y - 40.0f * m_zoomLevel)) < threshold) {
+                m_gizmo.active = true;
+                m_gizmo.axis = 1;
+                m_gizmo.dragging = true;
+                m_gizmo.dragStart = mouseWorld;
+            }
+        }
+    } else if (event.type == sf::Event::MouseButtonReleased) {
+        if (event.mouseButton.button == sf::Mouse::Left) {
+            m_gizmo.dragging = false;
+            m_gizmo.active = false;
+            m_gizmo.axis = -1;
+        }
+    }
+}
+
 void EditorViewport::setViewRect(const sf::FloatRect& rect) {
     m_view.setCenter(rect.left + rect.width / 2, rect.top + rect.height / 2);
     m_view.setSize(rect.width, rect.height);
@@ -314,6 +465,7 @@ bool EditorViewport::isSnapToGridEnabled() const {
 
 void EditorViewport::setSnapSize(float size) {
     m_snapSize = std::max(1.0f, size);
+    m_gizmo.snapStep = m_snapSize;
 }
 
 float EditorViewport::getSnapSize() const {
@@ -349,8 +501,101 @@ sf::Sprite EditorViewport::getRenderSprite() const {
     return sprite;
 }
 
+void EditorViewport::setRenderMode(ViewportRenderMode mode) {
+    m_renderMode = mode;
+}
+
+ViewportRenderMode EditorViewport::getRenderMode() const {
+    return m_renderMode;
+}
+
+void EditorViewport::cycleRenderMode() {
+    int mode = static_cast<int>(m_renderMode);
+    mode = (mode + 1) % 5;
+    m_renderMode = static_cast<ViewportRenderMode>(mode);
+}
+
+void EditorViewport::enableGizmo(bool enable) {
+    m_gizmoEnabled = enable;
+    if (!enable) {
+        m_gizmo.active = false;
+        m_gizmo.dragging = false;
+    }
+}
+
+bool EditorViewport::isGizmoEnabled() const {
+    return m_gizmoEnabled;
+}
+
+void EditorViewport::setGizmoType(int type) {
+    m_gizmo.type = type;
+}
+
+int EditorViewport::getGizmoType() const {
+    return m_gizmo.type;
+}
+
+GizmoState& EditorViewport::getGizmoState() {
+    return m_gizmo;
+}
+
+void EditorViewport::snapToGrid(sf::Vector2f& pos) const {
+    if (!m_snapToGrid) return;
+    pos.x = std::round(pos.x / m_snapSize) * m_snapSize;
+    pos.y = std::round(pos.y / m_snapSize) * m_snapSize;
+}
+
+int EditorViewport::addCamera(const std::string& name) {
+    ViewportCamera cam;
+    cam.name = name;
+    cam.position = sf::Vector3f(0, 0, 10);
+    cam.target = sf::Vector3f(0, 0, 0);
+    cam.fov = 60.0f;
+    cam.nearPlane = 0.1f;
+    cam.farPlane = 1000.0f;
+    cam.active = m_cameras.empty();
+    m_cameras.push_back(cam);
+    if (m_activeCameraIndex < 0) m_activeCameraIndex = 0;
+    return m_nextCameraId++;
+}
+
+void EditorViewport::removeCamera(int cameraId) {
+    if (cameraId < 0 || cameraId >= static_cast<int>(m_cameras.size())) return;
+    m_cameras.erase(m_cameras.begin() + cameraId);
+    if (m_activeCameraIndex >= static_cast<int>(m_cameras.size())) {
+        m_activeCameraIndex = static_cast<int>(m_cameras.size()) - 1;
+    }
+}
+
+void EditorViewport::setActiveCamera(int cameraId) {
+    for (size_t i = 0; i < m_cameras.size(); ++i) {
+        m_cameras[i].active = (static_cast<int>(i) == cameraId);
+    }
+    m_activeCameraIndex = cameraId;
+}
+
+ViewportCamera* EditorViewport::getActiveCamera() {
+    if (m_activeCameraIndex >= 0 && m_activeCameraIndex < static_cast<int>(m_cameras.size())) {
+        return &m_cameras[m_activeCameraIndex];
+    }
+    return nullptr;
+}
+
+size_t EditorViewport::getCameraCount() const {
+    return m_cameras.size();
+}
+
+sf::Vector2f EditorViewport::getGizmoPosition() const {
+    return m_gizmo.currentPos;
+}
+
+void EditorViewport::setGizmoPosition(const sf::Vector2f& pos) {
+    m_gizmo.currentPos = pos;
+}
+
 void EditorViewport::shutdown() {
     m_selectedIds.clear();
+    m_cameras.clear();
 }
 
 } // namespace editor
