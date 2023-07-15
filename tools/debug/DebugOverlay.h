@@ -20,6 +20,24 @@ struct FPSPoint {
     sf::Color color;
 };
 
+struct GraphData {
+    std::deque<float> history;
+    sf::Color color;
+    std::string label;
+    float minValue;
+    float maxValue;
+    bool autoScale;
+    size_t maxPoints;
+};
+
+enum class GraphType {
+    CPU,
+    GPU,
+    Memory,
+    EntityCount,
+    DrawCall
+};
+
 class DebugOverlay {
 public:
     DebugOverlay();
@@ -50,12 +68,31 @@ public:
     void showCollisionWireframe(bool show);
     bool isShowingCollisionWireframe() const;
 
+    void setCPUUsage(float usage);
+    void setGPUUsage(float usage);
+    void setMemoryUsageMB(float mb);
+    void setEntityCountGraph(int count);
+    void setDrawCallGraph(int calls);
+
+    void setGraphColor(GraphType type, const sf::Color& color);
+    void setGraphAutoScale(GraphType type, bool autoScale);
+    void setGraphMaxPoints(GraphType type, size_t maxPoints);
+    void clearGraph(GraphType type);
+    void clearAllGraphs();
+
 private:
     void updateDefaultStats();
     void renderFPSGraph(sf::RenderWindow& window);
     void renderStatsPanel(sf::RenderWindow& window);
     void renderMousePosition(sf::RenderWindow& window);
     void renderPerformanceMetrics(sf::RenderWindow& window);
+    void renderCPUUsageGraph(sf::RenderWindow& window);
+    void renderGPUUsageGraph(sf::RenderWindow& window);
+    void renderMemoryUsageGraph(sf::RenderWindow& window);
+    void renderEntityCountGraph(sf::RenderWindow& window);
+    void renderDrawCallGraph(sf::RenderWindow& window);
+    void renderLineGraph(sf::RenderWindow& window, const GraphData& data,
+                         const sf::FloatRect& bounds, const std::string& title);
 
     bool m_visible;
     sf::Keyboard::Key m_toggleKey;
@@ -80,6 +117,9 @@ private:
     bool m_showCollisionWireframe;
 
     sf::RectangleShape m_background;
+
+    std::unordered_map<GraphType, GraphData> m_graphs;
+    static constexpr size_t DEFAULT_GRAPH_POINTS = 200;
 };
 
 } // namespace debug
