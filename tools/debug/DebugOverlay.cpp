@@ -44,6 +44,12 @@ void DebugOverlay::init() {
     addStat("Entities", "0");
     addStat("Physics Bodies", "0");
     addStat("Memory", "0 MB");
+
+    m_graphs[GraphType::CPU] = {{}, sf::Color(100, 200, 255), "CPU", 0.0f, 100.0f, true, DEFAULT_GRAPH_POINTS};
+    m_graphs[GraphType::GPU] = {{}, sf::Color(255, 150, 100), "GPU", 0.0f, 100.0f, true, DEFAULT_GRAPH_POINTS};
+    m_graphs[GraphType::Memory] = {{}, sf::Color(100, 255, 100), "Memory", 0.0f, 100.0f, true, DEFAULT_GRAPH_POINTS};
+    m_graphs[GraphType::EntityCount] = {{}, sf::Color(255, 255, 100), "Entities", 0.0f, 1000.0f, true, DEFAULT_GRAPH_POINTS};
+    m_graphs[GraphType::DrawCall] = {{}, sf::Color(255, 100, 255), "Draw Calls", 0.0f, 1000.0f, true, DEFAULT_GRAPH_POINTS};
 }
 
 void DebugOverlay::update(float dt) {
@@ -57,6 +63,17 @@ void DebugOverlay::update(float dt) {
     m_fpsHistory.push_back({m_currentFPS, sf::Color::Green});
     if (m_fpsHistory.size() > MAX_FPS_HISTORY) {
         m_fpsHistory.pop_front();
+    }
+
+    for (auto& [type, graph] : m_graphs) {
+        if (graph.autoScale && !graph.history.empty()) {
+            auto [minIt, maxIt] = std::minmax_element(graph.history.begin(), graph.history.end());
+            graph.minValue = *minIt;
+            graph.maxValue = *maxIt;
+            if (graph.maxValue - graph.minValue < 1.0f) {
+                graph.maxValue = graph.minValue + 1.0f;
+            }
+        }
     }
 
     m_background.setSize(sf::Vector2f(280.0f, 40.0f + m_stats.size() * (m_fontSize + 4)));
@@ -92,6 +109,11 @@ void DebugOverlay::render(sf::RenderWindow& window) {
     renderStatsPanel(window);
     renderFPSGraph(window);
     renderPerformanceMetrics(window);
+    renderCPUUsageGraph(window);
+    renderGPUUsageGraph(window);
+    renderMemoryUsageGraph(window);
+    renderEntityCountGraph(window);
+    renderDrawCallGraph(window);
 
     if (m_showMousePosition) {
         renderMousePosition(window);
@@ -205,6 +227,100 @@ void DebugOverlay::renderPerformanceMetrics(sf::RenderWindow& window) {
     window.draw(metricsText);
 }
 
+void DebugOverlay::renderCPUUsageGraph(sf::RenderWindow& window) {
+    auto it = m_graphs.find(GraphType::CPU);
+    if (it == m_graphs.end()) return;
+    sf::FloatRect bounds(m_position.x + 300, m_position.y + 10, 200, 80);
+    renderLineGraph(window, it->second, bounds, "CPU Usage");
+}
+
+void DebugOverlay::renderGPUUsageGraph(sf::RenderWindow& window) {
+    auto it = m_graphs.find(GraphType::GPU);
+    if (it == m_graphs.end()) return;
+    sf::FloatRect bounds(m_position.x + 300, m_position.y + 100, 200, 80);
+    renderLineGraph(window, it->second, bounds, "GPU Usage");
+}
+
+void DebugOverlay::renderMemoryUsageGraph(sf::RenderWindow& window) {
+    auto it = m_graphs.find(GraphType::Memory);
+    if (it == m_graphs.end()) return;
+    sf::FloatRect bounds(m_position.x + 300, m_position.y + 190, 200, 80);
+    renderLineGraph(window, it->second, bounds, "Memory");
+}
+
+void DebugOverlay::renderEntityCountGraph(sf::RenderWindow& window) {
+    auto it = m_graphs.find(GraphType::EntityCount);
+    if (it == m_graphs.end()) return;
+    sf::FloatRect bounds(m_position.x + 300, m_position.y + 280, 200, 80);
+    renderLineGraph(window, it->second, bounds, "Entities");
+}
+
+void DebugOverlay::renderDrawCallGraph(sf::RenderWindow& window) {
+    auto it = m_graphs.find(GraphType::DrawCall);
+    if (it == m_graphs.end()) return;
+    sf::FloatRect bounds(m_position.x + 300, m_position.y + 370, 200, 80);
+    renderLineGraph(window, it->second, bounds, "Draw Calls");
+}
+
+void DebugOverlay::renderLineGraph(sf::RenderWindow& window, const GraphData& data,
+                                    const sf::FloatRect& bounds, const std::string& title) {
+    sf::RectangleShape bg(sf::Vector2f(bounds.width, bounds.height));
+    bg.setPosition(bounds.left, bounds.top);
+    bg.setFillColor(sf::Color(0, 0, 0, static_cast<sf::Uint8>(m_backgroundAlpha * 200)));
+    bg.setOutlineThickness(1);
+    bg.setOutlineColor(sf::Color(60, 60, 60));
+    window.draw(bg);
+
+    sf::Text titleText;
+    titleText.setFont(m_font);
+    titleText.setString(title);
+    titleText.setCharacterSize(m_fontSize - 2);
+    titleText.setFillColor(data.color);
+    titleText.setPosition(bounds.left + 3, bounds.top + 2);
+    window.draw(titleText);
+
+    float graphTop = bounds.top + m_fontSize + 2;
+    float graphH = bounds.height - m_fontSize - 6;
+    float graphL = bounds.left + 4;
+    float graphW = bounds.width - 8;
+
+    float valueRange = data.maxValue - data.minValue;
+    if (valueRange < 1.0f) valueRange = 1.0f;
+
+    sf::Text maxLabel;
+    maxLabel.setFont(m_font);
+    maxLabel.setString(std::to_string(static_cast<int>(data.maxValue)));
+    maxLabel.setCharacterSize(8);
+    maxLabel.setFillColor(sf::Color(120, 120, 120));
+    maxLabel.setPosition(graphL, graphTop);
+    window.draw(maxLabel);
+
+    sf::Text minLabel;
+    minLabel.setFont(m_font);
+    minLabel.setString(std::to_string(static_cast<int>(data.minValue)));
+    minLabel.setCharacterSize(8);
+    minLabel.setFillColor(sf::Color(120, 120, 120));
+    minLabel.setPosition(graphL, graphTop + graphH - 10);
+    window.draw(minLabel);
+
+    const auto& history = data.history;
+    size_t pointCount = history.size();
+    if (pointCount < 2) return;
+
+    float stepX = graphW / static_cast<float>(pointCount - 1);
+
+    std::vector<sf::Vertex> lineVerts;
+    for (size_t i = 0; i < pointCount; ++i) {
+        float normalized = (history[i] - data.minValue) / valueRange;
+        normalized = std::clamp(normalized, 0.0f, 1.0f);
+        float x = graphL + i * stepX;
+        float y = graphTop + graphH - normalized * graphH;
+        lineVerts.push_back(sf::Vertex(sf::Vector2f(x, y), data.color));
+    }
+
+    window.draw(lineVerts.data(), lineVerts.size(), sf::LinesStrip);
+}
+
 void DebugOverlay::renderMousePosition(sf::RenderWindow& window) {
     sf::Vector2i pixelPos = sf::Mouse::getPosition(window);
     sf::Vector2f worldPos = window.mapPixelToCoords(pixelPos);
@@ -226,6 +342,7 @@ void DebugOverlay::renderMousePosition(sf::RenderWindow& window) {
 void DebugOverlay::shutdown() {
     m_stats.clear();
     m_fpsHistory.clear();
+    m_graphs.clear();
 }
 
 void DebugOverlay::addStat(const std::string& name, const std::string& value) {
@@ -292,6 +409,90 @@ void DebugOverlay::showCollisionWireframe(bool show) {
 
 bool DebugOverlay::isShowingCollisionWireframe() const {
     return m_showCollisionWireframe;
+}
+
+void DebugOverlay::setCPUUsage(float usage) {
+    auto it = m_graphs.find(GraphType::CPU);
+    if (it != m_graphs.end()) {
+        it->second.history.push_back(usage);
+        if (it->second.history.size() > it->second.maxPoints) {
+            it->second.history.pop_front();
+        }
+    }
+}
+
+void DebugOverlay::setGPUUsage(float usage) {
+    auto it = m_graphs.find(GraphType::GPU);
+    if (it != m_graphs.end()) {
+        it->second.history.push_back(usage);
+        if (it->second.history.size() > it->second.maxPoints) {
+            it->second.history.pop_front();
+        }
+    }
+}
+
+void DebugOverlay::setMemoryUsageMB(float mb) {
+    auto it = m_graphs.find(GraphType::Memory);
+    if (it != m_graphs.end()) {
+        it->second.history.push_back(mb);
+        if (it->second.history.size() > it->second.maxPoints) {
+            it->second.history.pop_front();
+        }
+    }
+}
+
+void DebugOverlay::setEntityCountGraph(int count) {
+    auto it = m_graphs.find(GraphType::EntityCount);
+    if (it != m_graphs.end()) {
+        it->second.history.push_back(static_cast<float>(count));
+        if (it->second.history.size() > it->second.maxPoints) {
+            it->second.history.pop_front();
+        }
+    }
+}
+
+void DebugOverlay::setDrawCallGraph(int calls) {
+    auto it = m_graphs.find(GraphType::DrawCall);
+    if (it != m_graphs.end()) {
+        it->second.history.push_back(static_cast<float>(calls));
+        if (it->second.history.size() > it->second.maxPoints) {
+            it->second.history.pop_front();
+        }
+    }
+}
+
+void DebugOverlay::setGraphColor(GraphType type, const sf::Color& color) {
+    auto it = m_graphs.find(type);
+    if (it != m_graphs.end()) {
+        it->second.color = color;
+    }
+}
+
+void DebugOverlay::setGraphAutoScale(GraphType type, bool autoScale) {
+    auto it = m_graphs.find(type);
+    if (it != m_graphs.end()) {
+        it->second.autoScale = autoScale;
+    }
+}
+
+void DebugOverlay::setGraphMaxPoints(GraphType type, size_t maxPoints) {
+    auto it = m_graphs.find(type);
+    if (it != m_graphs.end()) {
+        it->second.maxPoints = maxPoints;
+    }
+}
+
+void DebugOverlay::clearGraph(GraphType type) {
+    auto it = m_graphs.find(type);
+    if (it != m_graphs.end()) {
+        it->second.history.clear();
+    }
+}
+
+void DebugOverlay::clearAllGraphs() {
+    for (auto& [type, graph] : m_graphs) {
+        graph.history.clear();
+    }
 }
 
 } // namespace debug
