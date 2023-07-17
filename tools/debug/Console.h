@@ -5,6 +5,7 @@
 #include <deque>
 #include <unordered_map>
 #include <functional>
+#include <fstream>
 
 namespace nebula {
 namespace tools {
@@ -13,12 +14,14 @@ namespace debug {
 enum class LogLevel {
     Info,
     Warning,
-    Error
+    Error,
+    Debug
 };
 
 struct LogEntry {
     std::string text;
     LogLevel level;
+    uint64_t timestamp;
 };
 
 struct ConsoleCommand {
@@ -32,6 +35,14 @@ struct ConsoleVariable {
     void* variable;
     std::string type;
     std::string help;
+};
+
+struct OutputFilter {
+    bool showInfo;
+    bool showWarning;
+    bool showError;
+    bool showDebug;
+    std::string searchText;
 };
 
 class Console {
@@ -57,6 +68,7 @@ public:
     void print(const std::string& text);
     void printWarning(const std::string& text);
     void printError(const std::string& text);
+    void printDebug(const std::string& text);
     void clearOutput();
 
     void show();
@@ -73,12 +85,31 @@ public:
 
     static Console& getInstance();
 
+    void saveHistory(const std::string& filename);
+    void loadHistory(const std::string& filename);
+
+    void setOutputFilter(const OutputFilter& filter);
+    OutputFilter getOutputFilter() const;
+
+    void startOutputToFile(const std::string& filename);
+    void stopOutputToFile();
+
+    void updateAutocompleteSuggestions();
+    std::vector<std::string> getAutocompleteSuggestions(const std::string& prefix) const;
+
+    void setMultilineInput(bool enable);
+    bool isMultilineInputEnabled() const;
+
 private:
     void processInput();
-    void autocomplete();
+    void updateAutocomplete();
     void navigateHistory(int direction);
     void renderOutput(sf::RenderWindow& window);
     void renderInput(sf::RenderWindow& window);
+    void renderFilterBar(sf::RenderWindow& window);
+    void renderAutocompleteDropdown(sf::RenderWindow& window);
+    void writeOutputToFile(const LogEntry& entry);
+    bool passesFilter(const LogEntry& entry) const;
 
     bool m_visible;
     sf::Keyboard::Key m_toggleKey;
@@ -90,6 +121,7 @@ private:
     sf::Color m_textColor;
     sf::Color m_warningColor;
     sf::Color m_errorColor;
+    sf::Color m_debugColor;
 
     std::string m_inputText;
     std::vector<LogEntry> m_outputBuffer;
@@ -108,6 +140,15 @@ private:
     sf::Vector2f m_consoleSize;
     sf::RectangleShape m_background;
     bool m_ctrlPressed;
+
+    std::string m_historyFilePath;
+    OutputFilter m_filter;
+
+    std::ofstream m_outputFileStream;
+    bool m_outputToFile;
+
+    bool m_multilineInput;
+    std::vector<std::string> m_inputLines;
 };
 
 } // namespace debug
