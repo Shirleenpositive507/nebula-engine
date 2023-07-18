@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <chrono>
+#include <iomanip>
 
 namespace nebula {
 namespace tools {
@@ -16,12 +18,19 @@ Console::Console()
     , m_textColor(220, 220, 220)
     , m_warningColor(255, 200, 0)
     , m_errorColor(255, 60, 60)
+    , m_debugColor(150, 150, 200)
     , m_historyIndex(-1)
     , m_autocompleteIndex(-1)
     , m_scrollOffset(0.0f)
     , m_consoleSize(800.0f, 300.0f)
     , m_ctrlPressed(false)
+    , m_outputToFile(false)
+    , m_multilineInput(false)
 {
+    m_filter.showInfo = true;
+    m_filter.showWarning = true;
+    m_filter.showError = true;
+    m_filter.showDebug = true;
 }
 
 Console::~Console() {
@@ -45,6 +54,10 @@ void Console::init() {
 
     registerBuiltinCommands();
 
+    if (!m_historyFilePath.empty()) {
+        loadHistory(m_historyFilePath);
+    }
+
     print("Nebula Engine Developer Console");
     print("Type 'help' for available commands.");
 }
@@ -63,25 +76,31 @@ void Console::render(sf::RenderWindow& window) {
     m_background.setSize(sf::Vector2f(static_cast<float>(winSize.x), m_consoleSize.y));
     window.draw(m_background);
 
+    renderFilterBar(window);
     renderOutput(window);
+    renderAutocompleteDropdown(window);
     renderInput(window);
 }
 
 void Console::renderOutput(sf::RenderWindow& window) {
     sf::Vector2u winSize = window.getSize();
-    float startY = static_cast<float>(winSize.y) - m_consoleSize.y + 5.0f;
-    float outputHeight = m_consoleSize.y - m_fontSize - 20.0f;
+    float startY = static_cast<float>(winSize.y) - m_consoleSize.y + 22.0f;
+    float outputHeight = m_consoleSize.y - m_fontSize - 40.0f;
 
     size_t startLine = static_cast<size_t>(std::max(0.0f, m_scrollOffset));
     float yPos = startY;
 
     size_t visibleLines = static_cast<size_t>(outputHeight / (m_fontSize + 2));
-    size_t count = std::min(visibleLines, m_outputBuffer.size() - startLine);
+    size_t count = 0;
+    std::vector<size_t> visibleIndices;
 
-    for (size_t i = 0; i < count; ++i) {
-        size_t idx = startLine + i;
-        if (idx >= m_outputBuffer.size()) break;
+    for (size_t i = startLine; i < m_outputBuffer.size() && visibleIndices.size() < visibleLines; ++i) {
+        if (passesFilter(m_outputBuffer[i])) {
+            visibleIndices.push_back(i);
+        }
+    }
 
+    for (size_t idx : visibleIndices) {
         const auto& entry = m_outputBuffer[idx];
 
         sf::Text text;
@@ -93,6 +112,7 @@ void Console::renderOutput(sf::RenderWindow& window) {
             case LogLevel::Info:    text.setFillColor(m_textColor); break;
             case LogLevel::Warning: text.setFillColor(m_warningColor); break;
             case LogLevel::Error:   text.setFillColor(m_errorColor); break;
+            case LogLevel::Debug:   text.setFillColor(m_debugColor); break;
         }
 
         text.setPosition(5.0f, yPos);
@@ -114,6 +134,68 @@ void Console::renderInput(sf::RenderWindow& window) {
     window.draw(promptText);
 }
 
+void Console::renderFilterBar(sf::RenderWindow& window) {
+    sf::Vector2u winSize = window.getSize();
+    float barY = static_cast<float>(winSize.y) - m_consoleSize.y;
+
+    sf::RectangleShape bar(sf::Vector2f(static_cast<float>(winSize.x), 20));
+    bar.setPosition(0, barY);
+    bar.setFillColor(sf::Color(15, 15, 15, 220));
+    window.draw(bar);
+
+    auto drawFilterToggle = [&](const std::string& label, bool& state, sf::Color color, float x) {
+        sf::Text filterText;
+        filterText.setFont(m_font);
+        filterText.setString((state ? "[X] " : "[ ] ") + label);
+        filterText.setCharacterSize(m_fontSize - 2);
+        filterText.setFillColor(state ? color : sf::Color(80, 80, 80));
+        filterText.setPosition(x, barY + 2);
+        window.draw(filterText);
+    };
+
+    drawFilterToggle("Info", m_filter.showInfo, m_textColor, 5.0f);
+    drawFilterToggle("Warn", m_filter.showWarning, m_warningColor, 80.0f);
+    drawFilterToggle("Error", m_filter.showError, m_errorColor, 155.0f);
+    drawFilterToggle("Debug", m_filter.showDebug, m_debugColor, 235.0f);
+
+    if (!m_filter.searchText.empty()) {
+        sf::Text searchText;
+        searchText.setFont(m_font);
+        searchText.setString("Filter: " + m_filter.searchText);
+        searchText.setCharacterSize(m_fontSize - 2);
+        searchText.setFillColor(sf::Color(180, 180, 100));
+        searchText.setPosition(320.0f, barY + 2);
+        window.draw(searchText);
+    }
+}
+
+void Console::renderAutocompleteDropdown(sf::RenderWindow& window) {
+    if (m_autocompleteMatches.empty() || m_inputText.empty()) return;
+
+    sf::Vector2u winSize = window.getSize();
+    float inputY = static_cast<float>(winSize.y) - m_fontSize - 8.0f;
+    float dropdownY = inputY - static_cast<float>(m_autocompleteMatches.size()) * (m_fontSize + 2) - 4;
+
+    sf::RectangleShape dropdown(sf::Vector2f(300, static_cast<float>(m_autocompleteMatches.size()) * (m_fontSize + 2) + 4));
+    dropdown.setPosition(20, dropdownY);
+    dropdown.setFillColor(sf::Color(20, 20, 20, 230));
+    dropdown.setOutlineThickness(1);
+    dropdown.setOutlineColor(sf::Color(60, 60, 60));
+    window.draw(dropdown);
+
+    float dy = dropdownY + 2;
+    for (size_t i = 0; i < m_autocompleteMatches.size(); ++i) {
+        sf::Text matchText;
+        matchText.setFont(m_font);
+        matchText.setString(m_autocompleteMatches[i]);
+        matchText.setCharacterSize(m_fontSize - 1);
+        matchText.setFillColor(static_cast<int>(i) == m_autocompleteIndex ? sf::Color::Yellow : sf::Color(180, 180, 180));
+        matchText.setPosition(25, dy);
+        window.draw(matchText);
+        dy += m_fontSize + 2;
+    }
+}
+
 void Console::handleEvent(const sf::Event& event) {
     if (event.type == sf::Event::KeyPressed) {
         if (event.key.code == m_toggleKey) {
@@ -124,7 +206,11 @@ void Console::handleEvent(const sf::Event& event) {
         if (!m_visible) return;
 
         if (event.key.code == sf::Keyboard::Return) {
-            processInput();
+            if (m_multilineInput) {
+                m_inputText += "\n";
+            } else {
+                processInput();
+            }
         }
         else if (event.key.code == sf::Keyboard::Up) {
             navigateHistory(-1);
@@ -133,7 +219,7 @@ void Console::handleEvent(const sf::Event& event) {
             navigateHistory(1);
         }
         else if (event.key.code == sf::Keyboard::Tab) {
-            autocomplete();
+            updateAutocomplete();
         }
         else if (event.key.code == sf::Keyboard::LControl ||
                  event.key.code == sf::Keyboard::RControl) {
@@ -181,6 +267,8 @@ void Console::processInput() {
     print("> " + m_inputText);
     executeCommand(m_inputText);
     m_inputText.clear();
+    m_autocompleteMatches.clear();
+    m_autocompleteIndex = -1;
 }
 
 void Console::executeCommand(const std::string& cmd) {
@@ -224,21 +312,56 @@ void Console::unregisterVariable(const std::string& name) {
 }
 
 void Console::print(const std::string& text) {
-    m_outputBuffer.push_back({text, LogLevel::Info});
+    uint64_t ts = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()
+        ).count()
+    );
+    LogEntry entry = {text, LogLevel::Info, ts};
+    m_outputBuffer.push_back(entry);
+    writeOutputToFile(entry);
     if (m_outputBuffer.size() > MAX_OUTPUT) {
         m_outputBuffer.erase(m_outputBuffer.begin());
     }
 }
 
 void Console::printWarning(const std::string& text) {
-    m_outputBuffer.push_back({text, LogLevel::Warning});
+    uint64_t ts = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()
+        ).count()
+    );
+    LogEntry entry = {text, LogLevel::Warning, ts};
+    m_outputBuffer.push_back(entry);
+    writeOutputToFile(entry);
     if (m_outputBuffer.size() > MAX_OUTPUT) {
         m_outputBuffer.erase(m_outputBuffer.begin());
     }
 }
 
 void Console::printError(const std::string& text) {
-    m_outputBuffer.push_back({text, LogLevel::Error});
+    uint64_t ts = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()
+        ).count()
+    );
+    LogEntry entry = {text, LogLevel::Error, ts};
+    m_outputBuffer.push_back(entry);
+    writeOutputToFile(entry);
+    if (m_outputBuffer.size() > MAX_OUTPUT) {
+        m_outputBuffer.erase(m_outputBuffer.begin());
+    }
+}
+
+void Console::printDebug(const std::string& text) {
+    uint64_t ts = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()
+        ).count()
+    );
+    LogEntry entry = {text, LogLevel::Debug, ts};
+    m_outputBuffer.push_back(entry);
+    writeOutputToFile(entry);
     if (m_outputBuffer.size() > MAX_OUTPUT) {
         m_outputBuffer.erase(m_outputBuffer.begin());
     }
@@ -284,6 +407,75 @@ void Console::setColors(const sf::Color& bg, const sf::Color& text,
     m_background.setFillColor(bg);
 }
 
+void Console::saveHistory(const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) return;
+    for (const auto& cmd : m_commandHistory) {
+        file << cmd << "\n";
+    }
+}
+
+void Console::loadHistory(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) return;
+    std::string line;
+    while (std::getline(file, line)) {
+        if (!line.empty()) {
+            m_commandHistory.push_back(line);
+            if (m_commandHistory.size() > MAX_HISTORY) {
+                m_commandHistory.pop_front();
+            }
+        }
+    }
+}
+
+void Console::setOutputFilter(const OutputFilter& filter) {
+    m_filter = filter;
+}
+
+OutputFilter Console::getOutputFilter() const {
+    return m_filter;
+}
+
+void Console::startOutputToFile(const std::string& filename) {
+    m_outputFileStream.open(filename, std::ios::app);
+    m_outputToFile = m_outputFileStream.is_open();
+}
+
+void Console::stopOutputToFile() {
+    if (m_outputFileStream.is_open()) {
+        m_outputFileStream.close();
+    }
+    m_outputToFile = false;
+}
+
+void Console::updateAutocompleteSuggestions() {
+    if (m_inputText.empty()) {
+        m_autocompleteMatches.clear();
+        return;
+    }
+    m_autocompleteMatches = getAutocompleteSuggestions(m_inputText);
+}
+
+std::vector<std::string> Console::getAutocompleteSuggestions(const std::string& prefix) const {
+    std::vector<std::string> matches;
+    for (const auto& cmd : m_commands) {
+        if (cmd.first.find(prefix) == 0) {
+            matches.push_back(cmd.first);
+        }
+    }
+    std::sort(matches.begin(), matches.end());
+    return matches;
+}
+
+void Console::setMultilineInput(bool enable) {
+    m_multilineInput = enable;
+}
+
+bool Console::isMultilineInputEnabled() const {
+    return m_multilineInput;
+}
+
 void Console::navigateHistory(int direction) {
     if (m_commandHistory.empty()) return;
 
@@ -305,35 +497,48 @@ void Console::navigateHistory(int direction) {
     m_inputText = m_commandHistory[histSize - 1 - idx];
 }
 
-void Console::autocomplete() {
+void Console::updateAutocomplete() {
     if (m_inputText.empty()) return;
 
-    std::vector<std::string> matches;
-    for (const auto& cmd : m_commands) {
-        if (cmd.first.find(m_inputText) == 0) {
-            matches.push_back(cmd.first);
-        }
-    }
+    m_autocompleteMatches = getAutocompleteSuggestions(m_inputText);
 
-    if (matches.empty()) return;
+    if (m_autocompleteMatches.empty()) return;
 
-    if (matches.size() == 1) {
-        m_inputText = matches[0] + " ";
+    if (m_autocompleteMatches.size() == 1) {
+        m_inputText = m_autocompleteMatches[0] + " ";
+        m_autocompleteMatches.clear();
+        m_autocompleteIndex = -1;
         return;
     }
 
-    m_autocompleteIndex = (m_autocompleteIndex + 1) % static_cast<int>(matches.size());
-    m_autocompleteMatches = matches;
+    m_autocompleteIndex = (m_autocompleteIndex + 1) % static_cast<int>(m_autocompleteMatches.size());
+    m_inputText = m_autocompleteMatches[m_autocompleteIndex];
+}
 
-    print("Suggestions: ");
-    std::string suggestions;
-    for (size_t i = 0; i < matches.size(); ++i) {
-        suggestions += matches[i];
-        if (i < matches.size() - 1) suggestions += ", ";
+void Console::writeOutputToFile(const LogEntry& entry) {
+    if (!m_outputToFile || !m_outputFileStream.is_open()) return;
+
+    auto now = std::chrono::system_clock::now();
+    auto timeT = std::chrono::system_clock::to_time_t(now);
+    std::string levelStr;
+    switch (entry.level) {
+        case LogLevel::Info: levelStr = "INFO"; break;
+        case LogLevel::Warning: levelStr = "WARN"; break;
+        case LogLevel::Error: levelStr = "ERR"; break;
+        case LogLevel::Debug: levelStr = "DEBUG"; break;
     }
-    print(suggestions);
 
-    m_inputText = matches[m_autocompleteIndex];
+    m_outputFileStream << "[" << levelStr << "] " << entry.text << std::endl;
+}
+
+bool Console::passesFilter(const LogEntry& entry) const {
+    switch (entry.level) {
+        case LogLevel::Info:    return m_filter.showInfo;
+        case LogLevel::Warning: return m_filter.showWarning;
+        case LogLevel::Error:   return m_filter.showError;
+        case LogLevel::Debug:   return m_filter.showDebug;
+    }
+    return true;
 }
 
 void Console::registerBuiltinCommands() {
@@ -433,10 +638,18 @@ void Console::registerBuiltinCommands() {
 }
 
 void Console::shutdown() {
+    if (!m_historyFilePath.empty()) {
+        saveHistory(m_historyFilePath);
+    }
+    if (m_outputFileStream.is_open()) {
+        m_outputFileStream.close();
+    }
+
     m_commands.clear();
     m_variables.clear();
     m_outputBuffer.clear();
     m_commandHistory.clear();
+    m_autocompleteMatches.clear();
 }
 
 } // namespace debug
