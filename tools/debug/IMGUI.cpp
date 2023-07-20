@@ -1,6 +1,7 @@
 #include "IMGUI.h"
 #include <sstream>
 #include <algorithm>
+#include <fstream>
 
 namespace nebula {
 namespace tools {
@@ -12,6 +13,7 @@ IMGUI::IMGUI()
     , m_styleColor(60, 60, 60)
     , m_sameLine(false)
     , m_treeDepth(0)
+    , m_dragDropActive(false)
 {
     m_state.frameCount = 0;
 }
@@ -34,24 +36,72 @@ void IMGUI::init(sf::RenderWindow& window) {
     }
     m_rectShape.setOutlineThickness(1.0f);
     m_rectShape.setOutlineColor(sf::Color(100, 100, 100));
+
+    DockRegion mainRegion;
+    mainRegion.id = "main";
+    mainRegion.rect = sf::FloatRect(0, 0, 800, 600);
+    mainRegion.splitDirection = 0;
+    mainRegion.splitRatio = 0.5f;
+    m_dockRegions["main"] = mainRegion;
+    m_dockOrder.push_back("main");
 }
 
 void IMGUI::shutdown() {
+    if (!m_treeStateFilePath.empty()) {
+        saveTreeState(m_treeStateFilePath);
+    }
     m_windows.clear();
     m_widgetStates.clear();
+    m_dockRegions.clear();
+    m_treeNodeStates.clear();
 }
 
 void IMGUI::newFrame() {
     m_state.frameCount++;
     m_state.mousePressed = sf::Mouse::isButtonPressed(sf::Mouse::Left);
+    m_state.mouseDown = sf::Mouse::isButtonPressed(sf::Mouse::Left);
     m_state.mousePos = static_cast<sf::Vector2f>(sf::Mouse::getPosition(*m_window));
     m_cursorPos = sf::Vector2f(0, 0);
     m_sameLine = false;
 }
 
 void IMGUI::render(sf::RenderWindow& window) {
+    renderDockRegions(window);
+
     for (auto& [name, win] : m_windows) {
         if (!win.open) continue;
+
+        if (win.minimized) {
+            sf::RectangleShape minBar(sf::Vector2f(win.rect.width, 22));
+            minBar.setPosition(win.rect.left, win.rect.top);
+            minBar.setFillColor(sf::Color(50, 50, 50, 220));
+            window.draw(minBar);
+
+            sf::Text titleText;
+            titleText.setFont(m_font);
+            titleText.setString("[_] " + win.id);
+            titleText.setCharacterSize(m_fontSize);
+            titleText.setFillColor(sf::Color(180, 180, 180));
+            titleText.setPosition(win.rect.left + 5, win.rect.top + 3);
+            window.draw(titleText);
+            continue;
+        }
+
+        if (win.collapsed) {
+            m_rectShape.setPosition(win.rect.left, win.rect.top);
+            m_rectShape.setSize(sf::Vector2f(win.rect.width, 22));
+            m_rectShape.setFillColor(sf::Color(40, 40, 40, 220));
+            window.draw(m_rectShape);
+
+            sf::Text titleText;
+            titleText.setFont(m_font);
+            titleText.setString("[+] " + win.id);
+            titleText.setCharacterSize(m_fontSize);
+            titleText.setFillColor(sf::Color::White);
+            titleText.setPosition(win.rect.left + 5, win.rect.top + 3);
+            window.draw(titleText);
+            continue;
+        }
 
         m_rectShape.setPosition(win.rect.left, win.rect.top);
         m_rectShape.setSize(sf::Vector2f(win.rect.width, win.rect.height));
@@ -65,6 +115,51 @@ void IMGUI::render(sf::RenderWindow& window) {
         titleText.setFillColor(sf::Color::White);
         titleText.setPosition(win.rect.left + 5, win.rect.top + 3);
         window.draw(titleText);
+
+        if (win.snapLeft || win.snapRight || win.snapTop || win.snapBottom) {
+            sf::RectangleShape snapIndicator(sf::Vector2f(4, win.rect.height));
+            if (win.snapLeft) {
+                snapIndicator.setPosition(win.rect.left, win.rect.top);
+                snapIndicator.setFillColor(sf::Color(100, 200, 255, 150));
+                window.draw(snapIndicator);
+            }
+            if (win.snapRight) {
+                snapIndicator.setPosition(win.rect.left + win.rect.width - 4, win.rect.top);
+                snapIndicator.setFillColor(sf::Color(100, 200, 255, 150));
+                window.draw(snapIndicator);
+            }
+        }
+    }
+
+    if (m_dragDropActive) {
+        sf::Text dragText;
+        dragText.setFont(m_font);
+        dragText.setString("Dragging: " + m_dragDrop.type + "/" + m_dragDrop.data);
+        dragText.setCharacterSize(m_fontSize);
+        dragText.setFillColor(sf::Color::Yellow);
+        dragText.setPosition(m_state.mousePos.x + 10, m_state.mousePos.y + 10);
+        window.draw(dragText);
+    }
+}
+
+void IMGUI::renderDockRegions(sf::RenderWindow& window) {
+    for (const auto& [id, region] : m_dockRegions) {
+        if (id == "main") continue;
+
+        sf::RectangleShape regionBg(sf::Vector2f(region.rect.width, region.rect.height));
+        regionBg.setPosition(region.rect.left, region.rect.top);
+        regionBg.setFillColor(sf::Color(25, 25, 30, 180));
+        regionBg.setOutlineThickness(1);
+        regionBg.setOutlineColor(sf::Color(60, 60, 70));
+        window.draw(regionBg);
+
+        sf::Text regionLabel;
+        regionLabel.setFont(m_font);
+        regionLabel.setString(id);
+        regionLabel.setCharacterSize(10);
+        regionLabel.setFillColor(sf::Color(100, 100, 110));
+        regionLabel.setPosition(region.rect.left + 3, region.rect.top + 3);
+        window.draw(regionLabel);
     }
 }
 
@@ -76,11 +171,16 @@ bool IMGUI::beginWindow(const std::string& name, sf::FloatRect rect, bool* open)
         win.rect = rect;
         win.open = true;
         win.collapsed = false;
+        win.minimized = false;
         win.docked = false;
         win.dockSide = -1;
         win.dragging = false;
         win.resizing = false;
         win.resizeEdge = -1;
+        win.snapLeft = false;
+        win.snapRight = false;
+        win.snapTop = false;
+        win.snapBottom = false;
         m_windows[name] = win;
         it = m_windows.find(name);
     }
@@ -89,17 +189,15 @@ bool IMGUI::beginWindow(const std::string& name, sf::FloatRect rect, bool* open)
     if (open) win.open = *open;
     if (!win.open) return false;
 
+    if (win.minimized || win.collapsed) return false;
+
     m_windowStack.push_back(name);
     m_windowRect = sf::Vector2f(win.rect.width, win.rect.height);
     m_cursorPos = sf::Vector2f(win.rect.left + 5, win.rect.top + 25);
 
-    sf::Text titleText;
-    titleText.setFont(m_font);
-    titleText.setString(win.id);
-    titleText.setCharacterSize(m_fontSize);
-
     sf::FloatRect titleRect(win.rect.left, win.rect.top, win.rect.width, 22.0f);
     handleWindowInteraction(name);
+    handleDocking(name);
 
     return true;
 }
@@ -116,6 +214,17 @@ void IMGUI::handleWindowInteraction(const std::string& name) {
 
     GUIWindow& win = it->second;
     sf::FloatRect titleBar(win.rect.left, win.rect.top, win.rect.width, 22.0f);
+    sf::FloatRect minimizeBtn(win.rect.left + win.rect.width - 40, win.rect.top, 18, 18);
+    sf::FloatRect collapseBtn(win.rect.left + win.rect.width - 20, win.rect.top, 18, 18);
+
+    if (m_state.mousePressed && isMouseOver(minimizeBtn)) {
+        win.minimized = !win.minimized;
+        return;
+    }
+    if (m_state.mousePressed && isMouseOver(collapseBtn)) {
+        win.collapsed = !win.collapsed;
+        return;
+    }
 
     if (m_state.mousePressed && isMouseOver(titleBar)) {
         win.dragging = true;
@@ -125,9 +234,34 @@ void IMGUI::handleWindowInteraction(const std::string& name) {
     if (win.dragging) {
         if (!sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
             win.dragging = false;
+            float snapThreshold = 20.0f;
+            win.snapLeft = (win.rect.left < snapThreshold);
+            win.snapRight = (win.rect.left + win.rect.width > m_window->getSize().x - snapThreshold);
+            win.snapTop = (win.rect.top < snapThreshold);
+            win.snapBottom = (win.rect.top + win.rect.height > m_window->getSize().y - snapThreshold);
         } else {
             win.rect.left = m_state.mousePos.x - win.dragOffset.x;
             win.rect.top = m_state.mousePos.y - win.dragOffset.y;
+        }
+    }
+}
+
+void IMGUI::handleDocking(const std::string& name) {
+    auto it = m_windows.find(name);
+    if (it == m_windows.end()) return;
+
+    GUIWindow& win = it->second;
+    if (!win.dragging) return;
+
+    for (auto& [regionId, region] : m_dockRegions) {
+        if (region.rect.contains(m_state.mousePos)) {
+            if (regionId != "main") {
+                win.docked = true;
+                win.dockTarget = regionId;
+                win.dockSide = 0;
+                win.rect = region.rect;
+                break;
+            }
         }
     }
 }
@@ -474,6 +608,149 @@ std::string IMGUI::getWidgetID(const std::string& base) {
 
 bool IMGUI::isMouseOver(const sf::FloatRect& rect) const {
     return rect.contains(m_state.mousePos);
+}
+
+void IMGUI::separatorEx(const sf::Color& color, float thickness) {
+    sf::Vertex line[] = {
+        sf::Vertex(sf::Vector2f(m_cursorPos.x, m_cursorPos.y + m_fontSize / 2), color),
+        sf::Vertex(sf::Vector2f(m_cursorPos.x + 250, m_cursorPos.y + m_fontSize / 2), color)
+    };
+    m_window->draw(line, 2, sf::Lines);
+    m_cursorPos.y += thickness + 4;
+}
+
+void IMGUI::beginGroup(const std::string& label, bool collapsible) {
+    GUIGroup group;
+    group.id = getWidgetID("group_" + label);
+    group.rect = sf::FloatRect(m_cursorPos.x, m_cursorPos.y, m_windowRect.x - 10, 0);
+    group.collapsible = collapsible;
+    group.collapsed = false;
+
+    sf::Text groupLabel;
+    groupLabel.setFont(m_font);
+    groupLabel.setString(label);
+    groupLabel.setCharacterSize(m_fontSize);
+    groupLabel.setFillColor(sf::Color(200, 200, 100));
+    groupLabel.setPosition(m_cursorPos.x, m_cursorPos.y);
+    m_window->draw(groupLabel);
+    m_cursorPos.y += m_fontSize + 4;
+
+    sf::Vertex line[] = {
+        sf::Vertex(sf::Vector2f(m_cursorPos.x, m_cursorPos.y), sf::Color(80, 80, 80)),
+        sf::Vertex(sf::Vector2f(m_cursorPos.x + m_windowRect.x - 10, m_cursorPos.y), sf::Color(80, 80, 80))
+    };
+    m_window->draw(line, 2, sf::Lines);
+    m_cursorPos.y += 4;
+
+    m_groupStack.push(group);
+}
+
+void IMGUI::endGroup() {
+    if (!m_groupStack.empty()) {
+        m_groupStack.pop();
+        m_cursorPos.y += 4;
+    }
+}
+
+void IMGUI::minimizeWindow(const std::string& windowName) {
+    auto it = m_windows.find(windowName);
+    if (it != m_windows.end()) {
+        it->second.minimized = true;
+    }
+}
+
+void IMGUI::expandWindow(const std::string& windowName) {
+    auto it = m_windows.find(windowName);
+    if (it != m_windows.end()) {
+        it->second.minimized = false;
+    }
+}
+
+bool IMGUI::isWindowMinimized(const std::string& windowName) const {
+    auto it = m_windows.find(windowName);
+    return (it != m_windows.end()) ? it->second.minimized : false;
+}
+
+void IMGUI::snapWindowToEdge(const std::string& windowName, int edge) {
+    auto it = m_windows.find(windowName);
+    if (it == m_windows.end()) return;
+    switch (edge) {
+        case 0: it->second.snapLeft = true; break;
+        case 1: it->second.snapRight = true; break;
+        case 2: it->second.snapTop = true; break;
+        case 3: it->second.snapBottom = true; break;
+    }
+}
+
+void IMGUI::releaseSnap(const std::string& windowName) {
+    auto it = m_windows.find(windowName);
+    if (it != m_windows.end()) {
+        it->second.snapLeft = false;
+        it->second.snapRight = false;
+        it->second.snapTop = false;
+        it->second.snapBottom = false;
+    }
+}
+
+bool IMGUI::beginDragDrop(const std::string& type, const std::string& data, void* userData) {
+    if (m_dragDropActive) return false;
+    m_dragDrop.type = type;
+    m_dragDrop.data = data;
+    m_dragDrop.userData = userData;
+    m_dragDrop.active = true;
+    m_dragDrop.startPos = m_state.mousePos;
+    m_dragDropActive = true;
+    return true;
+}
+
+void IMGUI::endDragDrop() {
+    m_dragDropActive = false;
+    m_dragDrop.active = false;
+}
+
+bool IMGUI::acceptDragDrop(const std::string& type, std::string& outData) {
+    if (!m_dragDropActive || m_dragDrop.type != type) return false;
+    outData = m_dragDrop.data;
+    return true;
+}
+
+DragDropPayload* IMGUI::getCurrentDragDrop() {
+    return m_dragDropActive ? &m_dragDrop : nullptr;
+}
+
+void IMGUI::saveTreeState(const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) return;
+    for (const auto& [key, val] : m_treeNodeStates) {
+        file << key << "=" << (val ? "1" : "0") << "\n";
+    }
+}
+
+void IMGUI::loadTreeState(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) return;
+    std::string line;
+    while (std::getline(file, line)) {
+        auto eq = line.find('=');
+        if (eq != std::string::npos) {
+            std::string key = line.substr(0, eq);
+            bool val = (line.substr(eq + 1) == "1");
+            m_treeNodeStates[key] = val;
+        }
+    }
+}
+
+void IMGUI::setDockRegion(const std::string& region, const sf::FloatRect& rect) {
+    auto it = m_dockRegions.find(region);
+    if (it != m_dockRegions.end()) {
+        it->second.rect = rect;
+    } else {
+        DockRegion newRegion;
+        newRegion.id = region;
+        newRegion.rect = rect;
+        m_dockRegions[region] = newRegion;
+        m_dockOrder.push_back(region);
+    }
 }
 
 } // namespace debug
