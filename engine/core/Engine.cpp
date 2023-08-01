@@ -83,6 +83,10 @@ namespace nebula {
 
         m_state = EngineState::Stopped;
 
+        if (m_eventDispatcher) {
+            m_eventDispatcher->removeAllListeners();
+        }
+
         m_gameLoop.reset();
         m_eventDispatcher.reset();
         m_eventBus.reset();
