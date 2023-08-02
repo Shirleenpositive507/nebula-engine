@@ -95,10 +95,13 @@ namespace nebula {
                     Input::instance().onMouseScrolled(event.mouseWheelScroll.delta);
                     break;
                 case sf::Event::Resized: {
+                    if (event.size.width == 0 || event.size.height == 0) break;
                     m_width = event.size.width;
                     m_height = event.size.height;
-                    m_window.setView(sf::View(sf::FloatRect(0, 0,
-                        static_cast<float>(m_width), static_cast<float>(m_height))));
+                    sf::View newView(sf::FloatRect(0, 0,
+                        static_cast<float>(m_width), static_cast<float>(m_height)));
+                    newView.setViewport(sf::FloatRect(0.f, 0.f, 1.f, 1.f));
+                    m_window.setView(newView);
                     if (m_resizeCallback) {
                         m_resizeCallback(m_width, m_height);
                     }
