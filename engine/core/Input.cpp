@@ -63,13 +63,15 @@ namespace nebula {
     }
 
     void Input::onKeyPressed(sf::Keyboard::Key key) {
-        if (!m_keysDown[key]) {
+        bool wasDown = m_keysDown[key];
+        if (!wasDown) {
             m_keysPressed[key] = true;
         }
         m_keysDown[key] = true;
     }
 
     void Input::onKeyReleased(sf::Keyboard::Key key) {
+        if (!m_keysDown[key]) return;
         m_keysDown[key] = false;
         m_keysReleased[key] = true;
     }
@@ -87,8 +89,8 @@ namespace nebula {
     }
 
     void Input::onMouseMoved(float x, float y) {
-        m_mouseDeltaX = x - m_mouseX;
-        m_mouseDeltaY = y - m_mouseY;
+        m_mouseDeltaX += x - m_mouseX;
+        m_mouseDeltaY += y - m_mouseY;
         m_mouseX = x;
         m_mouseY = y;
     }
