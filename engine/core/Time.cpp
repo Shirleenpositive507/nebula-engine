@@ -26,6 +26,7 @@ namespace nebula {
 
         if (m_unscaledDeltaTime > 0.1f) {
             m_unscaledDeltaTime = 0.1f;
+            m_lastFrame = now;
         }
 
         m_deltaTime = m_unscaledDeltaTime * m_timeScale;
@@ -50,7 +51,7 @@ namespace nebula {
         if (m_fpsTimer >= 0.5f) {
             m_fps = static_cast<float>(m_fpsFrameCount) / m_fpsTimer;
             m_fpsFrameCount = 0;
-            m_fpsTimer = 0.0f;
+            m_fpsTimer -= 0.5f;
         }
 
         if (m_frameLimit > 0.0f) {
