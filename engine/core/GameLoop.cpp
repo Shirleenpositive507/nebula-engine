@@ -91,6 +91,10 @@ namespace nebula {
             auto elapsed = std::chrono::duration_cast<std::chrono::duration<float>>(current - previous);
             previous = current;
 
+            if (elapsed.count() > m_fixedTimestep * static_cast<float>(m_maxUpdateSteps)) {
+                elapsed = std::chrono::duration<float>(m_fixedTimestep * static_cast<float>(m_maxUpdateSteps));
+            }
+
             lag += elapsed.count();
 
             int steps = 0;
@@ -176,6 +180,9 @@ namespace nebula {
 
             float frameTime = elapsed.count();
             if (frameTime > 0.1f) frameTime = 0.1f;
+            if (frameTime > m_fixedTimestep * static_cast<float>(m_maxUpdateSteps)) {
+                frameTime = m_fixedTimestep * static_cast<float>(m_maxUpdateSteps);
+            }
 
             accumulator += frameTime;
 
