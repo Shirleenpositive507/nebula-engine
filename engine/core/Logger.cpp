@@ -263,7 +263,17 @@ namespace nebula {
             s_asyncCv.wait_for(lock, std::chrono::milliseconds(100), [] { return !s_asyncQueue.empty() || !s_asyncRunning; });
 
             while (!s_asyncQueue.empty()) {
+                std::string msg = s_asyncQueue.front();
                 s_asyncQueue.pop();
+                lock.unlock();
+                {
+                    std::lock_guard<std::mutex> fileLock(s_mutex);
+                    if (s_file.is_open()) {
+                        s_file << msg << std::endl;
+                        s_file.flush();
+                    }
+                }
+                lock.lock();
             }
         }
     }
