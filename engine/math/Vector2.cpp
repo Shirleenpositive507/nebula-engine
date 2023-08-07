@@ -18,6 +18,7 @@ template Vector2<f64> operator*<f64>(f64, const Vector2<f64>&);
 template<typename T>
 void vector2BatchNormalize(Vector2<T>* vectors, size_t count) {
     for (size_t i = 0; i < count; ++i) {
+        if (vectors[i].isZero()) continue;
         vectors[i].normalize();
     }
 }
