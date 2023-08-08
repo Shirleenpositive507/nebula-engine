@@ -24,6 +24,11 @@ void matrix4BatchMultiply(const Matrix4<T>* a, const Matrix4<T>* b, Matrix4<T>* 
 template<typename T>
 void matrix4BatchInverse(const Matrix4<T>* matrices, Matrix4<T>* out, size_t count) {
     for (size_t i = 0; i < count; ++i) {
+        T det = matrices[i].determinant();
+        if (std::abs(det) < static_cast<T>(1e-8)) {
+            out[i] = Matrix4<T>::identity();
+            continue;
+        }
         out[i] = matrices[i].inverse();
     }
 }
