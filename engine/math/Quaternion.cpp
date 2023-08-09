@@ -10,9 +10,15 @@ template Quaternion<f64> operator*<f64>(f64, const Quaternion<f64>&);
 
 template<typename T>
 Quaternion<T> quaternionBatchSlerp(const Quaternion<T>* a, const Quaternion<T>* b, T t, size_t count) {
+    if (count == 0) return Quaternion<T>(0, 0, 0, 0);
     Quaternion<T> result(0, 0, 0, 0);
     for (size_t i = 0; i < count; ++i) {
-        result = result + Quaternion<T>::slerp(a[i], b[i], t);
+        T dot = a[i].w * b[i].w + a[i].x * b[i].x + a[i].y * b[i].y + a[i].z * b[i].z;
+        if (std::abs(dot) > static_cast<T>(0.9995)) {
+            result = result + Quaternion<T>::lerp(a[i], b[i], t);
+        } else {
+            result = result + Quaternion<T>::slerp(a[i], b[i], t);
+        }
     }
     return result.normalized();
 }
