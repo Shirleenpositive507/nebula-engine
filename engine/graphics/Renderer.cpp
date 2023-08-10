@@ -1,5 +1,6 @@
 #include "Renderer.h"
 #include <chrono>
+#include <limits>
 
 namespace nebula {
     namespace graphics {
@@ -75,7 +76,7 @@ namespace nebula {
             sf::RenderStates s = states;
             s.blendMode = m_blendState.toSFML();
             m_activeTarget->draw(drawable, s);
-            ++m_stats.drawCalls;
+            if (m_stats.drawCalls < std::numeric_limits<std::size_t>::max()) ++m_stats.drawCalls;
         }
 
         void Renderer::draw(const sf::VertexArray& vertexArray, const sf::RenderStates& states) {
@@ -84,7 +85,7 @@ namespace nebula {
             sf::RenderStates s = states;
             s.blendMode = m_blendState.toSFML();
             m_activeTarget->draw(vertexArray, s);
-            ++m_stats.drawCalls;
+            if (m_stats.drawCalls < std::numeric_limits<std::size_t>::max()) ++m_stats.drawCalls;
             m_stats.vertices += vertexArray.getVertexCount();
         }
 
@@ -96,7 +97,7 @@ namespace nebula {
             sf::RenderStates s = states;
             s.blendMode = m_blendState.toSFML();
             m_activeTarget->draw(vertices, count, type, s);
-            ++m_stats.drawCalls;
+            if (m_stats.drawCalls < std::numeric_limits<std::size_t>::max()) ++m_stats.drawCalls;
             m_stats.vertices += count;
         }
 
@@ -175,15 +176,21 @@ namespace nebula {
         }
 
         void Renderer::setRenderTarget(RenderTexture* target) {
+            if (m_customTarget == target) return;
             m_customTarget = target;
             if (target) {
                 m_activeTarget = &target->getSFMLTarget();
+            } else {
+                m_activeTarget = m_window;
             }
+            applyState();
         }
 
         void Renderer::resetRenderTarget() {
+            if (!m_customTarget) return;
             m_customTarget = nullptr;
             m_activeTarget = m_window;
+            applyState();
         }
 
         FrameStats Renderer::getFrameStats() const {
