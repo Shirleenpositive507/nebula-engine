@@ -90,9 +90,9 @@ namespace nebula {
         }
 
         void SpriteBatch::draw(const sf::Sprite& sprite) {
-            if (!m_began || m_items.size() >= m_maxVertices) {
-                if (m_items.size() >= m_maxVertices) flush();
-                else return;
+            if (!m_began) return;
+            if (m_items.size() >= m_maxVertices) {
+                flush();
             }
 
             SpriteBatchItem item;
@@ -107,9 +107,9 @@ namespace nebula {
                                const Color& color, float rotation,
                                const sf::Vector2f& scale, const sf::Vector2f& origin)
         {
-            if (!m_began || m_items.size() >= m_maxVertices) {
-                if (m_items.size() >= m_maxVertices) flush();
-                else return;
+            if (!m_began) return;
+            if (m_items.size() >= m_maxVertices) {
+                flush();
             }
 
             SpriteBatchItem item;
@@ -123,9 +123,9 @@ namespace nebula {
         void SpriteBatch::draw(const sf::Texture& texture, const sf::IntRect& sourceRect,
                                const sf::FloatRect& destRect, const Color& color)
         {
-            if (!m_began || m_items.size() >= m_maxVertices) {
-                if (m_items.size() >= m_maxVertices) flush();
-                else return;
+            if (!m_began) return;
+            if (m_items.size() >= m_maxVertices) {
+                flush();
             }
 
             SpriteBatchItem item;
@@ -141,9 +141,9 @@ namespace nebula {
                                float rotation, const sf::Vector2f& scale,
                                const sf::Vector2f& origin)
         {
-            if (!m_began || m_items.size() >= m_maxVertices) {
-                if (m_items.size() >= m_maxVertices) flush();
-                else return;
+            if (!m_began) return;
+            if (m_items.size() >= m_maxVertices) {
+                flush();
             }
 
             SpriteBatchItem item;
