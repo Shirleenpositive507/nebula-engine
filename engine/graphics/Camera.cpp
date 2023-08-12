@@ -171,18 +171,20 @@ namespace nebula {
             m_shakeTime -= dt;
             if (m_shakeTime < 0.f) m_shakeTime = 0.f;
 
+            if (m_shakeTime <= 0.f) {
+                m_shakeOffset = sf::Vector2f(0.f, 0.f);
+                return;
+            }
+
             float intensity = m_shake.intensity;
             if (m_shake.fadeOut) {
                 intensity *= (m_shakeTime / m_shake.duration);
             }
 
-            static std::mt19937 rng(std::random_device{}());
-            std::uniform_real_distribution<float> dist(-1.f, 1.f);
-
             float time = (m_shake.duration - m_shakeTime) * m_shake.frequency;
             m_shakeOffset = sf::Vector2f(
-                std::sin(time * 6.28318f) * intensity * dist(rng),
-                std::cos(time * 6.28318f + 1.5708f) * intensity * dist(rng)
+                std::sin(time * 6.28318f) * intensity,
+                std::cos(time * 6.28318f + 1.5708f) * intensity
             );
         }
 
