@@ -77,7 +77,14 @@ namespace nebula {
             if (it == m_textures.end() || it->second.isRenderTexture) {
                 return false;
             }
-            return it->second.texture->loadFromFile(it->second.filepath);
+            auto newTexture = std::make_shared<sf::Texture>();
+            if (!newTexture->loadFromFile(it->second.filepath)) {
+                NEBULA_ERROR("Failed to reload texture: " + it->second.filepath);
+                return false;
+            }
+            newTexture->setFilterMode(m_defaultFiltering);
+            it->second.texture = newTexture;
+            return true;
         }
 
         bool TextureManager::hasTexture(const std::string& name) const {
