@@ -157,6 +157,9 @@ namespace nebula {
             m_vertexArray.clear();
             m_vertexArray.resize(0);
             for (const auto& pair : m_emitters) {
+                if (pair.second->getParticleCount() > m_maxParticles) {
+                    pair.second->setMaxParticles(m_maxParticles);
+                }
                 pair.second->render(m_vertexArray);
             }
             std::size_t totalVerts = m_vertexArray.getVertexCount();
@@ -218,7 +221,7 @@ namespace nebula {
         }
 
         void ParticleSystem::sortParticles() {
-            float sortDir = (m_sortMode == ParticleSortMode::FrontToBack) ? 1.0f : -1.0f;
+            float sortDir = (m_sortMode == ParticleSortMode::FrontToBack) ? -1.0f : 1.0f;
             for (auto& pair : m_emitters) {
                 auto& particles = pair.second->getParticles();
                 std::sort(particles.begin(), particles.end(),
