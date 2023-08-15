@@ -133,8 +133,16 @@ std::vector<std::string> AudioEngine::getAvailableDevices() const {
 }
 
 bool AudioEngine::setAudioDevice(const std::string& deviceName) {
-    (void)deviceName;
-    return true;
+    if (deviceName.empty()) return false;
+    std::vector<std::string> devices = getAvailableDevices();
+    for (const auto& dev : devices) {
+        if (dev == deviceName) {
+            m_soundManager.stopAll();
+            m_musicPlayer.stop();
+            return true;
+        }
+    }
+    return false;
 }
 
 std::string AudioEngine::getCurrentDevice() const {
