@@ -198,7 +198,9 @@ void SoundManager::stopSound(const std::string& name) {
 
 void SoundManager::stopAll() {
     for (auto& [name, instance] : m_activeSounds) {
-        instance->sound->stop();
+        if (instance && instance->sound) {
+            instance->sound->stop();
+        }
         releaseInstance(instance);
     }
     m_activeSounds.clear();
@@ -324,6 +326,10 @@ void SoundManager::releaseSound(const std::string& name) {
 void SoundManager::update(float dt) {
     for (auto it = m_activeSounds.begin(); it != m_activeSounds.end();) {
         auto* inst = it->second;
+        if (!inst || !inst->inUse) {
+            it = m_activeSounds.erase(it);
+            continue;
+        }
         inst->sound->updateFade(dt);
 
         if (inst->sound->getStatus() == Sound::Status::Stopped) {
