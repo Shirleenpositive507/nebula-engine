@@ -185,7 +185,12 @@ void PhysicsWorld::resolveCollision(RigidBody* bodyA, RigidBody* bodyB, const Co
         if (totalInvMass < 1e-8f) return;
 
         f32 baumgarte = baumgarteCoefficient / dt;
-        f32 correctionMag = std::max(penetration - allowedPenetration.x, 0.0f) * baumgarte;
+        f32 slop = allowedPenetration.x;
+        f32 correctionMag = std::max(penetration - slop, 0.0f) * baumgarte;
+
+        if (correctionMag > 0.2f) {
+            correctionMag = 0.2f;
+        }
 
         Vector2f correction = normal * correctionMag;
 
