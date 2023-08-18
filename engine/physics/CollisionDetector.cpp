@@ -426,19 +426,22 @@ RaycastHit CollisionDetector::ccdRaycast(RigidBody* body, const Vector2f& origin
     closest.distance = maxDistance;
     bool found = false;
 
-    for (const auto& pair : candidates) {
-        RigidBody* other = (pair.bodyA == body) ? pair.bodyB : pair.bodyA;
-        if (!other->collider) continue;
+        for (const auto& pair : candidates) {
+            RigidBody* other = (pair.bodyA == body) ? pair.bodyB : pair.bodyA;
+            if (!other->collider) continue;
 
-        if (!canBodiesCollide(body, other)) continue;
+            if (!canBodiesCollide(body, other)) continue;
 
-        RaycastHit hit = raycast(origin, vel.normalized(), maxDistance);
-        if (hit.rigidBody == body) continue;
-        if (hit.rigidBody && hit.distance < closest.distance) {
-            closest = hit;
-            found = true;
+            Vector2f rayDir = vel.normalized();
+            if (rayDir.lengthSquared() < 0.5f) continue;
+
+            RaycastHit hit = raycast(origin, rayDir, maxDistance);
+            if (hit.rigidBody == body) continue;
+            if (hit.rigidBody && hit.distance < closest.distance && hit.distance > 0.0f) {
+                closest = hit;
+                found = true;
+            }
         }
-    }
 
     return found ? closest : RaycastHit();
 }
