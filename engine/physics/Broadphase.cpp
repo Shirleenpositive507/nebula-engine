@@ -123,7 +123,13 @@ void Broadphase::rebuildDBVT() {
     m_dbvtRoot.reset();
     m_dbvtLeaves.clear();
 
-    for (auto& body : bodies) {
+    std::vector<RigidBody*> sortedBodies(bodies.begin(), bodies.end());
+    std::sort(sortedBodies.begin(), sortedBodies.end(),
+        [](RigidBody* a, RigidBody* b) {
+            return a->position.x < b->position.x;
+        });
+
+    for (auto& body : sortedBodies) {
         DBVTNode* leaf = createLeaf(body);
         m_dbvtRoot = insertLeaf(std::move(m_dbvtRoot), leaf);
     }
