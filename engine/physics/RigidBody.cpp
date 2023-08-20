@@ -150,13 +150,17 @@ void RigidBody::integrateForces(f32 dt) {
     linearVelocity += force * inverseMass * dt;
     angularVelocity += torque * inverseInertia * dt;
 
-    if (linearDamping > 0.0f) linearVelocity *= std::max(1.0f - linearDamping * dt, 0.0f);
-    if (angularDamping > 0.0f) angularVelocity *= std::max(1.0f - angularDamping * dt, 0.0f);
+    if (linearDamping > 0.0f) linearVelocity *= std::max(1.0f - std::abs(linearDamping) * dt, 0.0f);
+    if (angularDamping != 0.0f) angularVelocity *= std::max(1.0f - std::abs(angularDamping) * dt, 0.0f);
 }
 
 void RigidBody::integrateVelocities(f32 dt) {
-    if (type != BodyType::Dynamic) return;
-    if (asleep) return;
+    if (type == BodyType::Static) return;
+    if (asleep && type == BodyType::Dynamic) return;
+
+    if (type == BodyType::Kinematic) {
+        return;
+    }
 
     Vector2f displacement = linearVelocity * dt;
     if (freezePositionX) displacement.x = 0;
