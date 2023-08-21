@@ -17,14 +17,16 @@ EntityManager::~EntityManager() {
     destroyAll();
 }
 
-u64 EntityManager::generateId() {
-    if (!mFreeIds.empty()) {
-        u64 id = mFreeIds.back();
-        mFreeIds.pop_back();
+    u64 EntityManager::generateId() {
+        if (!mFreeIds.empty()) {
+            u64 id = mFreeIds.back();
+            mFreeIds.pop_back();
+            return id;
+        }
+        u64 id = mNextId;
+        mNextId = (mNextId % 65535) + 1;
         return id;
     }
-    return mNextId++;
-}
 
 void EntityManager::recycleId(u64 id) {
     mFreeIds.push_back(id);
