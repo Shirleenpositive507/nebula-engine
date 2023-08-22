@@ -45,6 +45,7 @@ public:
         : mData(other.mData)
         , mSparse(std::move(other.mSparse))
         , mDense(std::move(other.mDense))
+        , m_pendingRemovals(std::move(other.m_pendingRemovals))
         , mCapacity(other.mCapacity)
         , mComponentCount(other.mComponentCount)
     {
@@ -60,6 +61,7 @@ public:
             mData = other.mData;
             mSparse = std::move(other.mSparse);
             mDense = std::move(other.mDense);
+            m_pendingRemovals = std::move(other.m_pendingRemovals);
             mCapacity = other.mCapacity;
             mComponentCount = other.mComponentCount;
             other.mData = nullptr;
@@ -88,20 +90,29 @@ public:
     void remove(u32 entity) {
         if (!has(entity)) return;
 
-        u32 index = mSparse[entity];
-        u32 lastIndex = mComponentCount - 1;
-        u32 lastEntity = mDense[lastIndex];
+        m_pendingRemovals.push_back(entity);
+    }
 
-        mData[index].~T();
-        if (index != lastIndex) {
-            new (&mData[index]) T(std::move(mData[lastIndex]));
-            mData[lastIndex].~T();
-            mDense[index] = lastEntity;
-            mSparse[lastEntity] = index;
+    void flushRemovals() {
+        for (u32 entity : m_pendingRemovals) {
+            if (!has(entity)) continue;
+
+            u32 index = mSparse[entity];
+            u32 lastIndex = mComponentCount - 1;
+            u32 lastEntity = mDense[lastIndex];
+
+            mData[index].~T();
+            if (index != lastIndex) {
+                new (&mData[index]) T(std::move(mData[lastIndex]));
+                mData[lastIndex].~T();
+                mDense[index] = lastEntity;
+                mSparse[lastEntity] = index;
+            }
+
+            mSparse[entity] = UINT32_MAX;
+            mComponentCount--;
         }
-
-        mSparse[entity] = UINT32_MAX;
-        mComponentCount--;
+        m_pendingRemovals.clear();
     }
 
     T* get(u32 entity) {
@@ -257,6 +268,7 @@ private:
     T* mData;
     std::vector<u32> mSparse;
     std::vector<u32> mDense;
+    std::vector<u32> m_pendingRemovals;
     u32 mCapacity;
     u32 mComponentCount;
 };
