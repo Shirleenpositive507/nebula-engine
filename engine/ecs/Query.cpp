@@ -1,5 +1,6 @@
 #include "Query.h"
 #include "EntityManager.h"
+#include <algorithm>
 
 namespace nebula {
 
@@ -79,6 +80,12 @@ void Query::invalidate() {
     mValid = false;
     mCachedResults.clear();
     mChangeInfo.added.clear();
+    mChangeInfo.frameNumber = mFrameNumber;
+}
+
+void Query::forceRefresh() {
+    mValid = false;
+    mCachedResults.clear();
 }
 
 void Query::resetChangeTracking() {

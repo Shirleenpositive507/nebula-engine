@@ -56,6 +56,7 @@ public:
 
     bool matches(const Archetype& archetype) const;
     void invalidate();
+    void forceRefresh();
     bool isValid() const { return mValid; }
 
     void setEntityManager(EntityManager* manager) { mManager = manager; }
