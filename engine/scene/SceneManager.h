@@ -5,6 +5,7 @@
 #include <vector>
 #include <unordered_map>
 #include <functional>
+#include <mutex>
 
 #include "engine/scene/Scene.h"
 #include "engine/core/math/Vector3.h"
@@ -93,6 +94,8 @@ private:
 
     std::vector<StreamingRegion> m_streamingRegions;
     std::unordered_map<std::string, Scene::Ptr> m_pooledScenes;
+    mutable std::mutex m_asyncMutex;
+    std::string m_loadingScene;
 
     void activateScene(Scene::Ptr scene);
     void deactivateScene(Scene::Ptr scene);

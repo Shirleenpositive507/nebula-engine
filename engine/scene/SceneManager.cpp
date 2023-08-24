@@ -79,12 +79,15 @@ bool SceneManager::loadScene(const std::string& name)
 
 bool SceneManager::loadSceneAsync(const std::string& name, std::function<void(bool)> onComplete)
 {
+    std::lock_guard<std::mutex> lock(m_asyncMutex);
     auto it = m_scenes.find(name);
     if (it == m_scenes.end()) {
         if (onComplete) onComplete(false);
         return false;
     }
 
+    if (m_loadingScene == name) return false;
+    m_loadingScene = name;
     m_loadProgress[name] = 0.0f;
 
     std::thread([this, name, onComplete]() {
@@ -92,10 +95,18 @@ bool SceneManager::loadSceneAsync(const std::string& name, std::function<void(bo
 
         for (int i = 0; i <= 10; ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            m_loadProgress[name] = static_cast<float>(i) / 10.0f;
+            {
+                std::lock_guard<std::mutex> lock(m_asyncMutex);
+                m_loadProgress[name] = static_cast<float>(i) / 10.0f;
+            }
             if (m_progressCallback) {
                 m_progressCallback(name, m_loadProgress[name]);
             }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_asyncMutex);
+            m_loadingScene.clear();
         }
 
         if (onComplete) onComplete(true);
