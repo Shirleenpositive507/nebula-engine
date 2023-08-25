@@ -81,6 +81,7 @@ bool SceneNode::removeChild(Ptr child)
         if (*it == child) {
             child->m_parent.reset();
             m_children.erase(it);
+            child->markDirty();
             return true;
         }
     }
@@ -151,6 +152,8 @@ void SceneNode::setParent(Ptr parent)
         }
         m_parent.reset();
     }
+    markDirty();
+    updateWorldTransform(true);
 }
 
 void SceneNode::setPosition(const Vector3& position)
