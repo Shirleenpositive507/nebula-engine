@@ -125,7 +125,7 @@ namespace nebula {
                 return;
             }
 
-            if (event.type == sf::Event::MouseButtonPressed) {
+            if (event.type == sf::Event::MouseButtonPressed || event.type == sf::Event::MouseMoved) {
                 sf::Vector2f mousePos(
                     static_cast<float>(event.mouseButton.x) / m_dpiScale,
                     static_cast<float>(event.mouseButton.y) / m_dpiScale
@@ -455,26 +455,31 @@ namespace nebula {
         }
 
         void UIManager::handleModalInput(const sf::Event& event) {
+            auto topModal = getTopModal();
+            if (!topModal) return;
+
             if (event.type == sf::Event::KeyPressed) {
                 if (event.key.code == sf::Keyboard::Escape) {
                     popModal();
                     return;
                 }
-            }
-
-            auto topModal = getTopModal();
-            if (topModal) {
-                topModal->onEvent(event);
-                if (event.type == sf::Event::MouseButtonPressed) {
-                    sf::Vector2f mousePos(
-                        static_cast<float>(event.mouseButton.x) / m_dpiScale,
-                        static_cast<float>(event.mouseButton.y) / m_dpiScale
-                    );
-                    if (!topModal->containsPoint(mousePos)) {
-                        return;
-                    }
+                if (event.key.code == sf::Keyboard::Tab) {
+                    handleNavigation(event);
+                    return;
                 }
             }
+
+            if (event.type == sf::Event::MouseButtonPressed) {
+                sf::Vector2f mousePos(
+                    static_cast<float>(event.mouseButton.x) / m_dpiScale,
+                    static_cast<float>(event.mouseButton.y) / m_dpiScale
+                );
+                if (!topModal->containsPoint(mousePos)) {
+                    return;
+                }
+            }
+
+            topModal->onEvent(event);
         }
 
         void UIManager::renderModalOverlay(sf::RenderTarget& target) {
