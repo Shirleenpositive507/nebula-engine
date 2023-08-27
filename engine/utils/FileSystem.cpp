@@ -153,10 +153,13 @@ namespace nebula {
         entry.path = dirPath;
         entry.recursive = recursive;
 
-        for (const auto& file : fs::recursive_directory_iterator(dirPath)) {
-            if (file.is_regular_file()) {
-                entry.fileTimes[file.path().string()] = fs::last_write_time(file.path());
+        try {
+            for (const auto& file : fs::recursive_directory_iterator(dirPath)) {
+                if (file.is_regular_file()) {
+                    entry.fileTimes[file.path().string()] = fs::last_write_time(file.path());
+                }
             }
+        } catch (const std::exception&) {
         }
 
         m_entries.push_back(std::move(entry));
@@ -240,10 +243,15 @@ namespace nebula {
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open()) return {};
         file.seekg(0, std::ios::end);
-        size_t size = static_cast<size_t>(file.tellg());
+        std::streampos sizePos = file.tellg();
+        if (sizePos <= 0) return {};
+        size_t size = static_cast<size_t>(sizePos);
         file.seekg(0, std::ios::beg);
         std::vector<uint8_t> data(size);
-        file.read(reinterpret_cast<char*>(data.data()), size);
+        file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(size));
+        if (!file) {
+            data.resize(static_cast<size_t>(file.gcount()));
+        }
         return data;
     }
 
