@@ -309,7 +309,12 @@ namespace nebula {
             expect('"');
             std::string result;
             while (m_pos < m_input.size() && peek() != '"') {
-                result += advance();
+                if (peek() == '\\' && m_pos + 1 < m_input.size()) {
+                    result += advance();
+                    result += advance();
+                } else {
+                    result += advance();
+                }
             }
             if (m_pos >= m_input.size())
                 throw JSONParseError("Unterminated string");
