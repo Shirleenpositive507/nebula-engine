@@ -6,6 +6,7 @@
 #include "FileSystem.h"
 #include <thread>
 #include <chrono>
+#include <atomic>
 
 namespace nebula {
 
@@ -23,13 +24,21 @@ namespace nebula {
         s_resourceWatcher.poll();
     }
 
+    static std::atomic<bool> s_reloadThreadRunning{false};
+
     void startBackgroundReloadThread(std::function<void()> checkFunc, int intervalMs) {
+        if (s_reloadThreadRunning.exchange(true)) return;
         std::thread([checkFunc = std::move(checkFunc), intervalMs]() {
-            while (true) {
+            while (s_reloadThreadRunning) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+                if (!s_reloadThreadRunning) break;
                 checkFunc();
             }
         }).detach();
+    }
+
+    void stopBackgroundReloadThread() {
+        s_reloadThreadRunning = false;
     }
 
 }
