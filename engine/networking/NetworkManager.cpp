@@ -92,12 +92,16 @@ namespace nebula {
 
         m_listener.close();
         m_udpSocket.unbind();
-        m_tcpSocket.disconnect();
+        if (m_tcpSocket.getLocalPort() > 0) {
+            m_tcpSocket.disconnect();
+        }
 
         {
             std::lock_guard<std::mutex> lock(m_poolMutex);
             for (auto& pc : m_connectionPool) {
-                pc.socket.disconnect();
+                if (pc.socket.getLocalPort() > 0) {
+                    pc.socket.disconnect();
+                }
             }
             m_connectionPool.clear();
         }
@@ -449,8 +453,25 @@ namespace nebula {
         if (!m_connected) return;
 
         uint64_t now = getCurrentTimeMs();
-        std::lock_guard<std::mutex> lock(m_ackMutex);
 
+        if (now - m_lastHeartbeatTime >= m_timeoutInterval) {
+            m_connected = false;
+            m_tcpSocket.disconnect();
+
+            std::lock_guard<std::mutex> statsLock(m_statsMutex);
+            m_stats.packetLoss++;
+            if (m_stats.activeConnections > 0) m_stats.activeConnections--;
+
+            if (m_handler) {
+                NetworkMessage timeoutMsg;
+                timeoutMsg.setType(MessageType::Disconnect);
+                timeoutMsg.setID(0);
+                m_handler(timeoutMsg);
+            }
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(m_ackMutex);
         for (auto& entry : m_lastSendTime) {
             if (now - entry.second >= m_timeoutInterval) {
                 m_connected = false;
