@@ -8,4 +8,9 @@ namespace nebula {
     constexpr int MAX_ENTITIES = 10000;
     constexpr int MAX_COMPONENTS = 64;
     constexpr int MAX_SOUND_CHANNELS = 32;
+    constexpr int MAX_PARTICLES = 100000;
+    constexpr int MAX_LIGHTS = 256;
+    constexpr int MAX_UI_WIDGETS = 4096;
+    constexpr int MAX_SCENES = 64;
+    constexpr int MAX_TEXTURE_SIZE = 8192;
 }
