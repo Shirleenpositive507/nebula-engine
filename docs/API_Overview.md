@@ -39,6 +39,9 @@
 - `ParticleSystem` - Particle emitter and updater
 - `Light` - 2D light source
 - `PostProcessor` - Post-processing effects pipeline
+- `TextureAtlas` - Texture atlas generation and region management
+- `InstancedSprite` - Instanced rendering for large sprite counts
+- `ShaderLibrary` - Built-in shader collection
 
 ### Physics
 - `World` - Physics simulation world
@@ -46,6 +49,7 @@
 - `Collider` - Collision shape (AABB, circle, polygon)
 - `Joint` - Constraint between bodies
 - `RaycastResult` - Ray intersection query result
+- `PhysicsLayer` - Collision layer and mask system
 
 ### Audio
 - `Sound` - Short sound effect playback
@@ -53,6 +57,8 @@
 - `AudioSource` - 3D positional audio source
 - `AudioListener` - Listener position and orientation
 - `Effect` - Audio effect (reverb, echo, etc.)
+- `AudioStream` - Procedural/network audio streaming
+- `AudioGroup` - Grouped volume and mute control
 
 ### UI
 - `Widget` - Base UI widget
@@ -61,20 +67,28 @@
 - `Panel` - Container panel
 - `Layout` - Layout manager (horizontal, vertical, grid)
 - `Style` - Widget styling properties
+- `Slider` - Value slider
+- `TextInput` - Text input field
 
 ### Scene
 - `Scene` - Scene with entities and systems
 - `SceneManager` - Scene stack and transitions
 - `Prefab` - Reusable entity template
+- `FadeTransition` - Cross-fade transition effect
+- `SlideTransition` - Slide-direction transition
+- `ZoomTransition` - Zoom in/out transition
 
 ### Networking
 - `Server` - TCP/UDP server
 - `Client` - TCP/UDP client
 - `Packet` - Serialized network message
 - `Connection` - Active connection handle
+- `Reliability` - Packet reliability channels
 
 ### Editor
 - `Editor` - Main editor controller
 - `Viewport` - Scene viewport widget
 - `EntityInspector` - Entity property editor
 - `Console` - In-game debug console
+- `ProfilerPanel` - Real-time performance profiling UI
+- `LogViewer` - Filterable log output viewer
