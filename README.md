@@ -1,5 +1,12 @@
 # Nebula Engine
 
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![C++](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%20|%20Linux%20|%20macOS-lightgrey.svg)
+![Tests](https://img.shields.io/badge/tests-256%20passing-brightgreen.svg)
+
 A high-performance 2D game engine built on C++ and SFML, designed for rapid prototyping and production-grade game development.
 
 ## Features
@@ -97,6 +104,14 @@ int main() {
 }
 ```
 
+## Downloads
+
+| Platform | Link |
+|----------|------|
+| Windows | [nebula-engine-v0.7.0-win64.zip](https://github.com/heheboobes/nebula-engine/releases/download/v0.7.0/nebula-engine-v0.7.0-win64.zip) |
+| Linux | [nebula-engine-v0.7.0-linux.tar.gz](https://github.com/heheboobes/nebula-engine/releases/download/v0.7.0/nebula-engine-v0.7.0-linux.tar.gz) |
+| macOS | [nebula-engine-v0.7.0-macos.tar.gz](https://github.com/heheboobes/nebula-engine/releases/download/v0.7.0/nebula-engine-v0.7.0-macos.tar.gz) |
+
 ## Documentation
 
 - [API Overview](docs/API_Overview.md)
@@ -113,6 +128,14 @@ int main() {
 - [Best Practices](docs/BestPractices.md)
 - [Examples](docs/Examples.md)
 - [Changelog](docs/CHANGELOG.md)
+
+## Acknowledgments
+
+- [SFML](https://www.sfml-dev.org/) - Multimedia library
+- [Dear ImGui](https://github.com/ocornut/imgui) - Editor UI framework
+- [Tracy Profiler](https://github.com/wolfpld/tracy) - Performance profiling
+- [nlohmann/json](https://github.com/nlohmann/json) - JSON serialization
+- All contributors and community members
 
 ## License
 
