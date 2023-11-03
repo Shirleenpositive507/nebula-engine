@@ -10,6 +10,8 @@
 #include "Settings.h"
 #include "GameLoop.h"
 #include "Platform.h"
+#include "CommandLine.h"
+#include "TaskSystem.h"
 
 #include <memory>
 #include <string>
@@ -48,6 +50,8 @@ namespace nebula {
         Settings& getSettings() { return Settings::instance(); }
         Config& getConfig() { return Config::instance(); }
         Profiler& getProfiler() { return Profiler::instance(); }
+        CommandLine& getCommandLine() { return CommandLine::instance(); }
+        TaskSystem& getTaskSystem() { return *m_taskSystem; }
 
         bool isRunning() const { return m_state == EngineState::Running; }
         bool isInitialized() const { return m_state != EngineState::Uninitialized; }
@@ -81,6 +85,7 @@ namespace nebula {
         std::unique_ptr<EventDispatcher> m_eventDispatcher;
         std::unique_ptr<GameLoop> m_gameLoop;
         std::unique_ptr<EventBus> m_eventBus;
+        std::unique_ptr<TaskSystem> m_taskSystem;
 
         std::function<void(float)> m_updateCallback;
         std::function<void(float)> m_renderCallback;
