@@ -7,6 +7,7 @@ namespace nebula {
 
     Engine::Engine() {
         Logger::trace("Engine created");
+        m_taskSystem = std::make_unique<TaskSystem>();
     }
 
     Engine::~Engine() {
@@ -30,9 +31,19 @@ namespace nebula {
         Logger::info("Page Size: " + std::to_string(PlatformInfo::getPageSize()) + " bytes");
         Logger::info("Available Memory: " + std::to_string(PlatformInfo::getAvailableMemory() / (1024 * 1024)) + " MB");
 
+        CommandLine& cmd = CommandLine::instance();
+        cmd.parse({});
+        if (cmd.getParsed().hasLogLevel) {
+            Logger::setLevel(static_cast<LogLevel>(cmd.getParsed().logLevel));
+        }
+
         Config& config = Config::instance();
-        if (!configPath.empty()) {
-            config.load(configPath);
+        std::string actualConfig = configPath;
+        if (cmd.getParsed().hasConfig) {
+            actualConfig = cmd.getParsed().configPath;
+        }
+        if (!actualConfig.empty()) {
+            config.load(actualConfig);
         }
 
         Settings& settings = Settings::instance();
@@ -43,9 +54,9 @@ namespace nebula {
 
         m_eventBus = std::make_unique<EventBus>();
 
-        int width = settings.getWidth();
-        int height = settings.getHeight();
-        bool fullscreen = settings.getFullscreen();
+        int width = cmd.getParsed().hasWidth ? cmd.getParsed().width : settings.getWidth();
+        int height = cmd.getParsed().hasHeight ? cmd.getParsed().height : settings.getHeight();
+        bool fullscreen = cmd.getParsed().hasFullscreen ? cmd.getParsed().fullscreen : settings.getFullscreen();
         int aa = settings.getAntialiasingLevel();
 
         m_window = std::make_unique<Window>();
@@ -55,7 +66,8 @@ namespace nebula {
             return false;
         }
 
-        m_window->setVSync(settings.getVSync());
+        bool vsync = cmd.getParsed().hasVsync ? cmd.getParsed().vsync : settings.getVSync();
+        m_window->setVSync(vsync);
 
         m_eventDispatcher = std::make_unique<EventDispatcher>();
 
@@ -66,6 +78,10 @@ namespace nebula {
         });
 
         m_gameLoop = std::make_unique<GameLoop>();
+
+        if (m_taskSystem) {
+            m_taskSystem->start();
+        }
 
         m_state = EngineState::Running;
         Logger::info("Engine initialization complete");
@@ -87,6 +103,10 @@ namespace nebula {
             m_eventDispatcher->removeAllListeners();
         }
 
+        if (m_taskSystem && m_taskSystem->isRunning()) {
+            m_taskSystem->stop();
+        }
+        m_taskSystem.reset();
         m_gameLoop.reset();
         m_eventDispatcher.reset();
         m_eventBus.reset();
