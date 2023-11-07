@@ -10,6 +10,8 @@
 #include "Viewport.h"
 #include "SpriteBatch.h"
 #include "RenderTexture.h"
+#include "Framebuffer.h"
+#include "BatchRenderer.h"
 #include <stack>
 #include <cstddef>
 #include <string>
@@ -131,6 +133,14 @@ namespace nebula {
 
             bool isBatchRendering() const;
 
+            Framebuffer* getActiveFramebuffer() const { return m_activeFramebuffer; }
+            void pushFramebuffer(Framebuffer* fb);
+            void popFramebuffer();
+            std::size_t getFramebufferStackSize() const;
+
+            BatchRenderer& getBatchRenderer() { return m_batchRenderer; }
+            void renderBatch();
+
         private:
             sf::RenderWindow* m_window;
             RenderTexture* m_customTarget;
@@ -142,6 +152,10 @@ namespace nebula {
             Color m_clearColor;
             BlendState m_blendState;
             sf::FloatRect m_viewport;
+
+            Framebuffer* m_activeFramebuffer;
+            std::stack<Framebuffer*> m_framebufferStack;
+            BatchRenderer m_batchRenderer;
 
             BatchMode m_batchMode;
             RenderPass m_currentPass;
