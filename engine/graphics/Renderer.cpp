@@ -11,15 +11,17 @@ namespace nebula {
             , m_activeTarget(nullptr)
             , m_frameBegan(false)
             , m_clearColor(Color::Black)
-            , m_viewport(0.f, 0.f, 1.f, 1.f) {}
-
+            , m_viewport(0.f, 0.f, 1.f, 1.f)
+            , m_activeFramebuffer(nullptr) {}
+    
         Renderer::Renderer(sf::RenderWindow& window)
             : m_window(&window)
             , m_customTarget(nullptr)
             , m_activeTarget(&window)
             , m_frameBegan(false)
             , m_clearColor(Color::Black)
-            , m_viewport(0.f, 0.f, 1.f, 1.f) {}
+            , m_viewport(0.f, 0.f, 1.f, 1.f)
+            , m_activeFramebuffer(nullptr) {}
 
         Renderer::~Renderer() {}
 
@@ -37,24 +39,27 @@ namespace nebula {
         void Renderer::beginFrame() {
             if (m_frameBegan) return;
             m_frameBegan = true;
-
+            m_batchRenderer.beginFrame();
+    
             if (m_activeTarget) {
                 m_activeTarget->clear(m_clearColor.toSFML());
             }
         }
-
+    
         void Renderer::endFrame() {
             if (!m_frameBegan) return;
-            m_frameBegan = false;
-
+            m_batchRenderer.endFrame();
+    
             if (m_customTarget) {
                 m_customTarget->display();
             }
-
+    
             applyState();
+            m_frameBegan = false;
         }
-
+    
         void Renderer::present() {
+            renderBatch();
             if (m_window && !m_customTarget) {
                 m_window->display();
             }
@@ -304,6 +309,46 @@ namespace nebula {
             return m_batchMode == BatchMode::Batched;
         }
 
+        void Renderer::pushFramebuffer(Framebuffer* fb) {
+            if (fb) {
+                if (m_activeFramebuffer) {
+                    m_framebufferStack.push(m_activeFramebuffer);
+                }
+                m_activeFramebuffer = fb;
+                fb->bind();
+                setRenderTarget(reinterpret_cast<RenderTexture*>(&fb->getSFMLTarget()));
+            }
+        }
+    
+        void Renderer::popFramebuffer() {
+            if (m_activeFramebuffer) {
+                m_activeFramebuffer->unbind();
+                m_activeFramebuffer = nullptr;
+            }
+            if (!m_framebufferStack.empty()) {
+                m_activeFramebuffer = m_framebufferStack.top();
+                m_framebufferStack.pop();
+                if (m_activeFramebuffer) {
+                    m_activeFramebuffer->bind();
+                    setRenderTarget(reinterpret_cast<RenderTexture*>(&m_activeFramebuffer->getSFMLTarget()));
+                } else {
+                    resetRenderTarget();
+                }
+            } else {
+                resetRenderTarget();
+            }
+        }
+    
+        std::size_t Renderer::getFramebufferStackSize() const {
+            return m_framebufferStack.size();
+        }
+    
+        void Renderer::renderBatch() {
+            if (m_activeTarget) {
+                m_batchRenderer.render(*m_activeTarget);
+            }
+        }
+    
         void Renderer::applyState() {
         }
 
