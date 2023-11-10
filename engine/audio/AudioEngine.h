@@ -3,6 +3,7 @@
 #include "SoundManager.h"
 #include "MusicPlayer.h"
 #include "AudioListener.h"
+#include "AudioStream.h"
 #include "math/Vector3.h"
 
 #include <memory>
@@ -143,6 +144,21 @@ public:
     void addDuckingPair(const DuckingPair& pair);
     void removeDuckingPair(std::size_t index);
 
+    AudioStream* createStream(const std::string& filepath);
+    void destroyStream(AudioStream* stream);
+    void stopAllStreams();
+
+    struct AudioDeviceInfo {
+        std::string name;
+        std::string driver;
+        unsigned int sampleRate;
+        unsigned int channelCount;
+        bool isDefault;
+    };
+    std::vector<AudioDeviceInfo> enumerateDevices() const;
+    bool selectOutputDevice(const std::string& deviceName);
+    std::string getSelectedDevice() const { return m_selectedDevice; }
+
     void onFocusGained();
     void onFocusLost();
 
@@ -163,6 +179,8 @@ private:
     std::vector<ReverbZone> m_reverbZones;
     std::unordered_map<std::string, MixerGroup> m_mixerGroups;
     std::vector<DuckingPair> m_duckingPairs;
+    std::vector<std::unique_ptr<AudioStream>> m_streams;
+    std::string m_selectedDevice;
 };
 
 } // namespace audio
