@@ -1,6 +1,7 @@
 #include "AudioEngine.h"
 #include <algorithm>
 #include <cmath>
+#include <SFML/Audio/SoundRecorder.hpp>
 
 namespace nebula {
 namespace audio {
@@ -360,6 +361,69 @@ void AudioEngine::applyReverbZones(const Vector3f& listenerPos) {
         totalRoom *= invCount;
         totalDamping *= invCount;
     }
+}
+
+AudioStream* AudioEngine::createStream(const std::string& filepath) {
+    auto stream = std::make_unique<AudioStream>();
+    if (!stream->openFromFile(filepath)) {
+        return nullptr;
+    }
+    AudioStream* ptr = stream.get();
+    m_streams.push_back(std::move(stream));
+    return ptr;
+}
+
+void AudioEngine::destroyStream(AudioStream* stream) {
+    auto it = std::find_if(m_streams.begin(), m_streams.end(),
+        [stream](const std::unique_ptr<AudioStream>& s) {
+            return s.get() == stream;
+        });
+    if (it != m_streams.end()) {
+        (*it)->stop();
+        m_streams.erase(it);
+    }
+}
+
+void AudioEngine::stopAllStreams() {
+    for (auto& s : m_streams) {
+        s->stop();
+    }
+    m_streams.clear();
+}
+
+std::vector<AudioEngine::AudioDeviceInfo> AudioEngine::enumerateDevices() const {
+    std::vector<AudioDeviceInfo> devices;
+    std::vector<std::string> sfDevices = sf::SoundRecorder::getAvailableDevices();
+    std::string defaultDevice = sf::SoundRecorder::getDefaultDevice();
+
+    for (const auto& name : sfDevices) {
+        AudioDeviceInfo info;
+        info.name = name;
+        info.sampleRate = 44100;
+        info.channelCount = 2;
+        info.isDefault = (name == defaultDevice);
+        devices.push_back(info);
+    }
+    if (devices.empty()) {
+        AudioDeviceInfo fallback;
+        fallback.name = "Default";
+        fallback.sampleRate = 44100;
+        fallback.channelCount = 2;
+        fallback.isDefault = true;
+        devices.push_back(fallback);
+    }
+    return devices;
+}
+
+bool AudioEngine::selectOutputDevice(const std::string& deviceName) {
+    std::vector<std::string> devices = sf::SoundRecorder::getAvailableDevices();
+    for (const auto& dev : devices) {
+        if (dev == deviceName) {
+            m_selectedDevice = deviceName;
+            return true;
+        }
+    }
+    return false;
 }
 
 void AudioEngine::onFocusGained() {
