@@ -14,6 +14,8 @@
 #include "Collider.h"
 #include "Joint.h"
 
+class PhysicsDebug;
+
 namespace nebula {
 
 struct CollisionEvent {
@@ -83,6 +85,7 @@ public:
 
     bool debugDraw;
     DebugDrawMode debugDrawMode;
+    PhysicsDebug* debugRenderer;
     f32 fixedTimestep;
     f32 accumulator;
     i32 velocityIterations;
@@ -119,6 +122,10 @@ public:
     void setDebugDrawMode(DebugDrawMode mode);
     DebugDrawMode getDebugDrawMode() const;
     void renderDebug();
+    void setDebugRenderer(PhysicsDebug* renderer) { debugRenderer = renderer; }
+    PhysicsDebug* getDebugRenderer() const { return debugRenderer; }
+    void setDebugDrawEnabled(bool enabled) { debugDraw = enabled; }
+    bool isDebugDrawEnabled() const { return debugDraw; }
 
     std::vector<TriggerEvent> getTriggerEvents() const;
     void clearTriggerEvents();
