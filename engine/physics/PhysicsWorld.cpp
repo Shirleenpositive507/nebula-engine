@@ -1,4 +1,5 @@
 #include "PhysicsWorld.h"
+#include "PhysicsDebug.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -23,6 +24,7 @@ PhysicsWorld::PhysicsWorld(const Vector2f& g)
     : gravity(g)
     , debugDraw(false)
     , debugDrawMode(DebugDrawMode::None)
+    , debugRenderer(nullptr)
     , fixedTimestep(1.0f / 60.0f)
     , accumulator(0.0f)
     , velocityIterations(8)
@@ -350,40 +352,9 @@ DebugDrawMode PhysicsWorld::getDebugDrawMode() const {
 
 void PhysicsWorld::renderDebug() {
     if (!debugDraw) return;
-
-    switch (m_debugDrawMode) {
-        case DebugDrawMode::WireframeShapes:
-            for (auto* body : bodies) {
-                if (!body->collider) continue;
-                Rectf bounds = body->collider->getBounds();
-                bounds.offset(body->position);
-            }
-            break;
-
-        case DebugDrawMode::ContactPoints:
-            break;
-
-        case DebugDrawMode::Normals:
-            break;
-
-        case DebugDrawMode::CollisionVolumes:
-            for (auto* body : bodies) {
-                if (!body->collider) continue;
-                Rectf bounds = body->collider->getBounds();
-                bounds.offset(body->position);
-            }
-            break;
-
-        case DebugDrawMode::All:
-            for (auto* body : bodies) {
-                if (!body->collider) continue;
-                Rectf bounds = body->collider->getBounds();
-                bounds.offset(body->position);
-            }
-            break;
-
-        default:
-            break;
+    if (debugRenderer) {
+        debugRenderer->setEnabled(true);
+        debugRenderer->drawWorld(*this);
     }
 }
 
