@@ -6,6 +6,9 @@
 #include <unordered_set>
 #include <algorithm>
 #include "../core/Types.h"
+#include <mutex>
+
+class SystemScheduler;
 
 namespace nebula {
 
@@ -68,6 +71,13 @@ public:
     void setRuntimeEnabled(bool enabled) { mRuntimeEnabled = enabled; }
     bool isRuntimeEnabled() const { return mRuntimeEnabled; }
 
+    void setScheduler(SystemScheduler* scheduler) { mScheduler = scheduler; }
+    SystemScheduler* getScheduler() const { return mScheduler; }
+
+    void lock() { mMutex.lock(); }
+    void unlock() { mMutex.unlock(); }
+    bool tryLock() { return mMutex.try_lock(); }
+
 private:
     bool mEnabled = true;
     bool mRuntimeEnabled = true;
@@ -76,6 +86,8 @@ private:
     SystemGroup mGroup = SystemGroup::Logic;
     SystemPhase mPhase = SystemPhase::Update;
     std::vector<System*> mDependencies;
+    SystemScheduler* mScheduler = nullptr;
+    std::mutex mMutex;
 };
 
 class SystemGroupContainer {

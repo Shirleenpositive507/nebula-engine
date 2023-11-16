@@ -1,4 +1,5 @@
 #include "System.h"
+#include "SystemScheduler.h"
 #include <cassert>
 #include <queue>
 
@@ -143,6 +144,7 @@ T* SystemManager::registerSystem(Args&&... args) {
     mSystems[hash] = std::move(system);
     return ptr;
 }
+}
 
 template <typename T>
 T* SystemManager::getSystem() const {
@@ -216,6 +218,17 @@ std::vector<System*> SystemManager::getSystemList() const {
         result.push_back(pair.second.get());
     }
     return result;
+}
+
+void SystemManager::executeDependencyOrdered(f32 dt) {
+    auto allSystems = getSystemList();
+    auto sorted = mDependencyGraph.topologicalSort(allSystems);
+
+    for (auto* sys : sorted) {
+        if (sys->isEnabled() && sys->isRuntimeEnabled()) {
+            sys->update(dt);
+        }
+    }
 }
 
 void SystemManager::clear() {
