@@ -187,17 +187,6 @@ void SystemManager::runPhase(f32 dt, SystemPhase phase) {
     }
 }
 
-void SystemManager::executeDependencyOrdered(f32 dt) {
-    auto allSystems = getSystemList();
-    auto sorted = mDependencyGraph.topologicalSort(allSystems);
-
-    for (auto* sys : sorted) {
-        if (sys->isEnabled() && sys->isRuntimeEnabled()) {
-            sys->update(dt);
-        }
-    }
-}
-
 void SystemManager::setSystemEnabled(const std::string& name, bool enabled) {
     for (auto& pair : mSystems) {
         if (pair.second->getName() == name) {
