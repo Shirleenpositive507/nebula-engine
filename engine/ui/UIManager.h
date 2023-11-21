@@ -2,6 +2,9 @@
 
 #include "UIWidget.h"
 #include "UIStyle.h"
+#include "UIDropdown.h"
+#include "UIProgressBar.h"
+#include "UIScrollbar.h"
 #include <SFML/Graphics/RenderTarget.hpp>
 #include <SFML/Graphics/RectangleShape.hpp>
 #include <SFML/Graphics/View.hpp>
@@ -78,8 +81,11 @@ namespace nebula {
             void setScreenSpace(bool screenSpace);
             bool isScreenSpace() const;
 
-            void setDPIScale(float scale);
-            float getDPIScale() const;
+    void setDPIScale(float scale);
+    float getDPIScale() const;
+
+    void setTooltipDelay(float delay);
+    float getTooltipDelay() const;
 
             void setInputRemapping(const InputRemap& remap);
             const InputRemap& getInputRemapping() const;
@@ -121,8 +127,9 @@ namespace nebula {
             bool m_screenSpace;
             float m_dpiScale;
 
-            InputRemap m_inputRemap;
-            std::vector<std::string> m_tabOrder;
+    InputRemap m_inputRemap;
+    std::vector<std::string> m_tabOrder;
+    float m_tooltipDelay;
 
             bool m_screenReaderEnabled;
             std::function<std::string(std::shared_ptr<UIWidget>)> m_describeWidget;
