@@ -8,7 +8,8 @@ namespace nebula {
             : m_debugMode(false)
             , m_screenSpace(true)
             , m_dpiScale(1.f)
-            , m_screenReaderEnabled(false) {
+            , m_screenReaderEnabled(false)
+            , m_tooltipDelay(0.5f) {
             m_root = std::make_shared<UIWidget>("__root__");
             m_root->setSize(1920.f, 1080.f);
             m_globalStyle = UIStyle::Dark();
@@ -123,6 +124,22 @@ namespace nebula {
             if (isModalActive()) {
                 handleModalInput(event);
                 return;
+            }
+
+            if (event.type == sf::Event::MouseButtonPressed) {
+                sf::Vector2f mousePos(
+                    static_cast<float>(event.mouseButton.x) / m_dpiScale,
+                    static_cast<float>(event.mouseButton.y) / m_dpiScale
+                );
+                auto clicked = findWidget(mousePos);
+                if (auto dropdown = std::dynamic_pointer_cast<UIDropdown>(clicked)) {
+                    setFocusedWidget(clicked);
+                    return;
+                }
+                if (auto scrollbar = std::dynamic_pointer_cast<UIScrollbar>(clicked)) {
+                    setFocusedWidget(clicked);
+                    return;
+                }
             }
 
             if (event.type == sf::Event::MouseButtonPressed || event.type == sf::Event::MouseMoved) {
@@ -312,6 +329,14 @@ namespace nebula {
 
         float UIManager::getDPIScale() const {
             return m_dpiScale;
+        }
+
+        void UIManager::setTooltipDelay(float delay) {
+            m_tooltipDelay = std::max(0.0f, delay);
+        }
+
+        float UIManager::getTooltipDelay() const {
+            return m_tooltipDelay;
         }
 
         void UIManager::setInputRemapping(const InputRemap& remap) {
