@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <type_traits>
 #include <memory>
+#include "Hashing.h"
+#include "Compression.h"
 
 namespace nebula {
 
@@ -142,12 +144,30 @@ namespace nebula {
 
         std::vector<uint8_t> getData() const;
 
+        void setUseChecksum(bool enabled) { m_useChecksum = enabled; }
+        bool isChecksumEnabled() const { return m_useChecksum; }
+
+        void setCompressionEnabled(bool enabled) { m_compressionEnabled = enabled; }
+        bool isCompressionEnabled() const { return m_compressionEnabled; }
+
+        void setCompressionLevel(CompressionLevel level) { m_compressionLevel = level; }
+        CompressionLevel getCompressionLevel() const { return m_compressionLevel; }
+
+        uint32_t computeChecksum() const;
+        bool verifyChecksum(uint32_t checksum) const;
+
+        std::vector<uint8_t> getCompressed() const;
+        bool loadCompressed(const std::vector<uint8_t>& compressedData);
+
     private:
         uint32_t m_version;
         bool m_loading;
 
         std::unique_ptr<Serializer> m_serializer;
         std::unique_ptr<Deserializer> m_deserializer;
+        bool m_useChecksum;
+        bool m_compressionEnabled;
+        CompressionLevel m_compressionLevel;
 
         Archive(uint32_t version, bool loading, const std::vector<uint8_t>* data);
     };
