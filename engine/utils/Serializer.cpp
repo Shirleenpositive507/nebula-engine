@@ -123,12 +123,16 @@ namespace nebula {
 
     Archive::Archive(uint32_t version)
         : m_version(version), m_loading(false)
+        , m_useChecksum(false), m_compressionEnabled(false)
+        , m_compressionLevel(CompressionLevel::Default)
     {
         m_serializer = std::make_unique<Serializer>();
     }
 
     Archive::Archive(uint32_t version, bool loading, const std::vector<uint8_t>* data)
         : m_version(version), m_loading(loading)
+        , m_useChecksum(false), m_compressionEnabled(false)
+        , m_compressionLevel(CompressionLevel::Default)
     {
         if (loading) {
             m_deserializer = std::make_unique<Deserializer>(*data);
@@ -146,8 +150,58 @@ namespace nebula {
     }
 
     std::vector<uint8_t> Archive::getData() const {
-        if (m_serializer) return m_serializer->getData();
+        if (m_serializer) {
+            auto data = m_serializer->getData();
+            if (m_useChecksum) {
+                uint32_t checksum = hash::crc32(data.data(), data.size());
+                Serializer tmp;
+                tmp.writeBytes(data);
+                tmp.writeUInt32(checksum);
+                return tmp.getData();
+            }
+            return data;
+        }
         return {};
+    }
+
+    uint32_t Archive::computeChecksum() const {
+        if (m_serializer) {
+            auto data = m_serializer->getData();
+            return hash::crc32(data.data(), data.size());
+        }
+        return 0;
+    }
+
+    bool Archive::verifyChecksum(uint32_t checksum) const {
+        return computeChecksum() == checksum;
+    }
+
+    std::vector<uint8_t> Archive::getCompressed() const {
+        auto data = getData();
+        if (data.empty()) return {};
+        return CompressionUtils::compress(data.data(), data.size(), m_compressionLevel).data;
+    }
+
+    bool Archive::loadCompressed(const std::vector<uint8_t>& compressedData) {
+        CompressedBlock block;
+        block.data = compressedData;
+        block.originalSize = 0;
+        block.compressedSize = compressedData.size();
+        block.valid = true;
+        auto decompressed = CompressionUtils::decompress(block);
+        if (decompressed.empty()) return false;
+        if (m_useChecksum && decompressed.size() >= 4) {
+            uint32_t storedChecksum;
+            std::memcpy(&storedChecksum, decompressed.data() + decompressed.size() - 4, 4);
+            std::vector<uint8_t> dataWithoutChecksum(decompressed.begin(), decompressed.end() - 4);
+            uint32_t computed = hash::crc32(dataWithoutChecksum.data(), dataWithoutChecksum.size());
+            if (computed != storedChecksum) return false;
+            decompressed = dataWithoutChecksum;
+        }
+        if (m_deserializer) {
+            m_deserializer = std::make_unique<Deserializer>(decompressed);
+        }
+        return true;
     }
 
     template<typename T>
