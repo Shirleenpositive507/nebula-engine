@@ -16,6 +16,8 @@
 #include <thread>
 #include <atomic>
 #include <deque>
+#include "../utils/Compression.h"
+#include "../utils/Hashing.h"
 
 namespace nebula {
 
@@ -104,6 +106,26 @@ namespace nebula {
         void enableLatencyJitterMeasurement(bool enable);
         bool isLatencyJitterMeasurementEnabled() const;
 
+        struct ServerInfo {
+            std::string name;
+            std::string address;
+            uint16_t port;
+            uint32_t playerCount;
+            uint32_t maxPlayers;
+            std::string mapName;
+            uint64_t lastSeen;
+        };
+
+        void startLANDiscovery(uint16_t discoveryPort = 45678);
+        void stopLANDiscovery();
+        bool isLANDiscoveryRunning() const;
+        std::vector<ServerInfo> getDiscoveredServers() const;
+        void setLANDiscoveryCallback(std::function<void(const ServerInfo&)> callback);
+
+        void setAESKey(const std::vector<uint8_t>& key);
+        bool isAESEnabled() const { return m_aesEnabled; }
+        void setAESEnabled(bool enabled) { m_aesEnabled = enabled; }
+
     private:
         NetworkManager();
         ~NetworkManager();
@@ -191,7 +213,21 @@ namespace nebula {
         uint64_t m_bandwidthUsedThisSecond;
         uint64_t m_bandwidthIntervalStart;
 
-        bool m_latencyJitterEnabled;
+        uint64_t m_bandwidthLimitBytesPerSec;
+
+        bool m_lanDiscoveryRunning;
+        uint16_t m_lanDiscoveryPort;
+        std::vector<ServerInfo> m_discoveredServers;
+        mutable std::mutex m_discoveryMutex;
+        std::function<void(const ServerInfo&)> m_discoveryCallback;
+        std::unique_ptr<std::thread> m_discoveryThread;
+
+        bool m_aesEnabled;
+        std::vector<uint8_t> m_aesKey;
+
+        void lanDiscoveryLoop();
+        void sendLANBroadcast();
+        void processLANBroadcast();
         double m_lastLatencyMs;
         double m_lastJitterMs;
         std::deque<double> m_latencyHistory;
