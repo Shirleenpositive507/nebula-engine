@@ -5,6 +5,8 @@
 #include <sstream>
 #include <iomanip>
 #include <cmath>
+#include <SFML/Network/IpAddress.hpp>
+#include <SFML/Network/Packet.hpp>
 
 namespace nebula {
 
@@ -692,6 +694,104 @@ namespace nebula {
 
     bool NetworkManager::isLatencyJitterMeasurementEnabled() const {
         return m_latencyJitterEnabled;
+    }
+
+    void NetworkManager::startLANDiscovery(uint16_t discoveryPort) {
+        if (m_lanDiscoveryRunning) return;
+        m_lanDiscoveryRunning = true;
+        m_lanDiscoveryPort = discoveryPort;
+        m_discoveryThread = std::make_unique<std::thread>(&NetworkManager::lanDiscoveryLoop, this);
+    }
+
+    void NetworkManager::stopLANDiscovery() {
+        m_lanDiscoveryRunning = false;
+        if (m_discoveryThread && m_discoveryThread->joinable()) {
+            m_discoveryThread->join();
+        }
+        m_discoveryThread.reset();
+    }
+
+    bool NetworkManager::isLANDiscoveryRunning() const {
+        return m_lanDiscoveryRunning;
+    }
+
+    std::vector<NetworkManager::ServerInfo> NetworkManager::getDiscoveredServers() const {
+        std::lock_guard<std::mutex> lock(m_discoveryMutex);
+        return m_discoveredServers;
+    }
+
+    void NetworkManager::setLANDiscoveryCallback(std::function<void(const ServerInfo&)> callback) {
+        m_discoveryCallback = std::move(callback);
+    }
+
+    void NetworkManager::lanDiscoveryLoop() {
+        UDPSocket discoverySocket;
+        discoverySocket.bind(m_lanDiscoveryPort);
+
+        sf::Packet broadcastPacket;
+        broadcastPacket << "NEBULA_DISCOVERY";
+        broadcastPacket << static_cast<uint32_t>(m_port);
+
+        while (m_lanDiscoveryRunning) {
+            sendLANBroadcast();
+            processLANBroadcast();
+
+            uint64_t now = getCurrentTimeMs();
+            std::lock_guard<std::mutex> lock(m_discoveryMutex);
+            m_discoveredServers.erase(
+                std::remove_if(m_discoveredServers.begin(), m_discoveredServers.end(),
+                    [now](const ServerInfo& s) { return now - s.lastSeen > 5000; }),
+                m_discoveredServers.end()
+            );
+
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+        }
+        discoverySocket.unbind();
+    }
+
+    void NetworkManager::sendLANBroadcast() {
+        sf::Packet packet;
+        packet << "NEBULA_HELLO";
+        packet << static_cast<uint32_t>(m_port);
+        m_udpSocket.sendPacket(packet, "255.255.255.255", m_lanDiscoveryPort);
+    }
+
+    void NetworkManager::processLANBroadcast() {
+        sf::Packet packet;
+        std::string senderIp;
+        unsigned short senderPort;
+
+        while (m_udpSocket.receivePacket(packet, senderIp, senderPort)) {
+            std::string header;
+            packet >> header;
+            if (header == "NEBULA_HELLO") {
+                uint32_t serverPort;
+                packet >> serverPort;
+
+                ServerInfo info;
+                info.address = senderIp;
+                info.port = static_cast<uint16_t>(serverPort);
+                info.lastSeen = getCurrentTimeMs();
+
+                std::lock_guard<std::mutex> lock(m_discoveryMutex);
+                bool found = false;
+                for (auto& s : m_discoveredServers) {
+                    if (s.address == info.address && s.port == info.port) {
+                        s.lastSeen = info.lastSeen;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    m_discoveredServers.push_back(info);
+                    if (m_discoveryCallback) m_discoveryCallback(info);
+                }
+            }
+        }
+    }
+
+    void NetworkManager::setAESKey(const std::vector<uint8_t>& key) {
+        m_aesKey = key;
     }
 
     uint64_t NetworkManager::getCurrentTimeMs() {

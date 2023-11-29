@@ -213,8 +213,6 @@ namespace nebula {
         uint64_t m_bandwidthUsedThisSecond;
         uint64_t m_bandwidthIntervalStart;
 
-        uint64_t m_bandwidthLimitBytesPerSec;
-
         bool m_lanDiscoveryRunning;
         uint16_t m_lanDiscoveryPort;
         std::vector<ServerInfo> m_discoveredServers;
@@ -225,13 +223,15 @@ namespace nebula {
         bool m_aesEnabled;
         std::vector<uint8_t> m_aesKey;
 
-        void lanDiscoveryLoop();
-        void sendLANBroadcast();
-        void processLANBroadcast();
+        bool m_latencyJitterEnabled;
         double m_lastLatencyMs;
         double m_lastJitterMs;
         std::deque<double> m_latencyHistory;
         static constexpr size_t LATENCY_HISTORY_SIZE = 50;
+
+        void lanDiscoveryLoop();
+        void sendLANBroadcast();
+        void processLANBroadcast();
 
         static uint64_t getCurrentTimeMs();
     };
