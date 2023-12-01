@@ -32,14 +32,25 @@ namespace nebula {
         virtual void onUpdate(float dt);
         virtual void onRender(float dt);
         virtual void onEvent(Event& event);
+        virtual void onPreUpdate(float dt);
+        virtual void onPostUpdate(float dt);
+        virtual void onPostRender(float dt);
+
+        virtual void onPause();
+        virtual void onResume();
 
         bool initialize();
         void shutdown();
         void update(float dt);
         void render(float dt);
+        void tick(float dt);
 
         void run();
         void quit();
+        void pause();
+        void resume();
+
+        bool isPaused() const { return m_paused; }
 
         void parseCommandLine(int argc, char* argv[]);
 
@@ -60,6 +71,7 @@ namespace nebula {
         ApplicationConfig m_config;
         bool m_running = false;
         bool m_initialized = false;
+        bool m_paused = false;
     };
 
 }
