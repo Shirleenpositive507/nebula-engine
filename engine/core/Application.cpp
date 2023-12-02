@@ -40,6 +40,24 @@ namespace nebula {
         (void)event;
     }
 
+    void Application::onPreUpdate(float dt) {
+        (void)dt;
+    }
+
+    void Application::onPostUpdate(float dt) {
+        (void)dt;
+    }
+
+    void Application::onPostRender(float dt) {
+        (void)dt;
+    }
+
+    void Application::onPause() {
+    }
+
+    void Application::onResume() {
+    }
+
     bool Application::initialize() {
         NEBULA_INFO(m_config.name + " v" + m_config.version + " initializing...");
         NEBULA_INFO("Organization: " + m_config.organization);
@@ -77,6 +95,30 @@ namespace nebula {
 
     void Application::render(float dt) {
         onRender(dt);
+    }
+
+    void Application::tick(float dt) {
+        if (m_paused) return;
+
+        onPreUpdate(dt);
+        update(dt);
+        onPostUpdate(dt);
+        render(dt);
+        onPostRender(dt);
+    }
+
+    void Application::pause() {
+        if (!m_paused) {
+            m_paused = true;
+            onPause();
+        }
+    }
+
+    void Application::resume() {
+        if (m_paused) {
+            m_paused = false;
+            onResume();
+        }
     }
 
     void Application::run() {
