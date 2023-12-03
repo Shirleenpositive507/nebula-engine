@@ -25,6 +25,11 @@ namespace nebula {
             ToneMapACES,
             ToneMapFilmic,
             GammaCorrection,
+            FilmGrain,
+            Sepia,
+            Pixelation,
+            Scanlines,
+            NightVision,
             Custom
         };
 
@@ -100,6 +105,12 @@ namespace nebula {
             void setVignette(float intensity, const sf::Color& color = sf::Color::Black, float radius = 0.5f);
             void setBloom(float threshold, float blurAmount, float intensity);
 
+            void setFilmGrain(float intensity, float grainSize = 1.0f);
+            void setSepia(float intensity);
+            void setPixelation(float blockSize);
+            void setScanlines(float intensity, float frequency = 1.0f);
+            void setNightVision(float intensity, float luminanceThreshold = 0.3f);
+
             // HDR tone mapping
             void setToneMapping(ToneMapOperator op);
             ToneMapOperator getToneMapping() const;
@@ -144,6 +155,11 @@ namespace nebula {
             bool generateBloomShader(sf::Shader& shader, float threshold, float intensity);
             bool generateToneMapShader(sf::Shader& shader, ToneMapOperator op, float exposure);
             bool generateGammaShader(sf::Shader& shader, float gamma);
+            bool generateFilmGrainShader(sf::Shader& shader, float intensity, float grainSize);
+            bool generateSepiaShader(sf::Shader& shader, float intensity);
+            bool generatePixelationShader(sf::Shader& shader, float blockSize);
+            bool generateScanlinesShader(sf::Shader& shader, float intensity, float frequency);
+            bool generateNightVisionShader(sf::Shader& shader, float intensity, float luminanceThreshold);
         };
 
     }
