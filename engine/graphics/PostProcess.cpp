@@ -45,6 +45,24 @@ namespace nebula {
                     effect.parameters["blurAmount"] = EffectParameter(4.f);
                     effect.parameters["intensity"] = EffectParameter(1.f);
                     break;
+                case EffectType::FilmGrain:
+                    effect.parameters["intensity"] = EffectParameter(0.3f);
+                    effect.parameters["grainSize"] = EffectParameter(1.0f);
+                    break;
+                case EffectType::Sepia:
+                    effect.parameters["intensity"] = EffectParameter(0.8f);
+                    break;
+                case EffectType::Pixelation:
+                    effect.parameters["blockSize"] = EffectParameter(4.0f);
+                    break;
+                case EffectType::Scanlines:
+                    effect.parameters["intensity"] = EffectParameter(0.5f);
+                    effect.parameters["frequency"] = EffectParameter(1.0f);
+                    break;
+                case EffectType::NightVision:
+                    effect.parameters["intensity"] = EffectParameter(1.0f);
+                    effect.parameters["luminanceThreshold"] = EffectParameter(0.3f);
+                    break;
                 default:
                     break;
             }
@@ -212,6 +230,49 @@ namespace nebula {
             }
         }
 
+        void PostProcess::setFilmGrain(float intensity, float grainSize) {
+            for (auto& effect : m_effects) {
+                if (effect.type == EffectType::FilmGrain) {
+                    effect.parameters["intensity"] = EffectParameter(intensity);
+                    effect.parameters["grainSize"] = EffectParameter(grainSize);
+                }
+            }
+        }
+
+        void PostProcess::setSepia(float intensity) {
+            for (auto& effect : m_effects) {
+                if (effect.type == EffectType::Sepia) {
+                    effect.parameters["intensity"] = EffectParameter(intensity);
+                }
+            }
+        }
+
+        void PostProcess::setPixelation(float blockSize) {
+            for (auto& effect : m_effects) {
+                if (effect.type == EffectType::Pixelation) {
+                    effect.parameters["blockSize"] = EffectParameter(blockSize);
+                }
+            }
+        }
+
+        void PostProcess::setScanlines(float intensity, float frequency) {
+            for (auto& effect : m_effects) {
+                if (effect.type == EffectType::Scanlines) {
+                    effect.parameters["intensity"] = EffectParameter(intensity);
+                    effect.parameters["frequency"] = EffectParameter(frequency);
+                }
+            }
+        }
+
+        void PostProcess::setNightVision(float intensity, float luminanceThreshold) {
+            for (auto& effect : m_effects) {
+                if (effect.type == EffectType::NightVision) {
+                    effect.parameters["intensity"] = EffectParameter(intensity);
+                    effect.parameters["luminanceThreshold"] = EffectParameter(luminanceThreshold);
+                }
+            }
+        }
+
         PostEffect* PostProcess::getEffect(const std::string& name) {
             for (auto& effect : m_effects) {
                 if (effect.name == name) return &effect;
@@ -334,6 +395,34 @@ namespace nebula {
                         float threshold = effect.parameters["threshold"].floatValue;
                         float intensity = effect.parameters["intensity"].floatValue;
                         generateBloomShader(*effect.shader, threshold, intensity);
+                        break;
+                    }
+                    case EffectType::FilmGrain: {
+                        float intensity = effect.parameters["intensity"].floatValue;
+                        float grainSize = effect.parameters["grainSize"].floatValue;
+                        generateFilmGrainShader(*effect.shader, intensity, grainSize);
+                        break;
+                    }
+                    case EffectType::Sepia: {
+                        float intensity = effect.parameters["intensity"].floatValue;
+                        generateSepiaShader(*effect.shader, intensity);
+                        break;
+                    }
+                    case EffectType::Pixelation: {
+                        float blockSize = effect.parameters["blockSize"].floatValue;
+                        generatePixelationShader(*effect.shader, blockSize);
+                        break;
+                    }
+                    case EffectType::Scanlines: {
+                        float intensity = effect.parameters["intensity"].floatValue;
+                        float frequency = effect.parameters["frequency"].floatValue;
+                        generateScanlinesShader(*effect.shader, intensity, frequency);
+                        break;
+                    }
+                    case EffectType::NightVision: {
+                        float intensity = effect.parameters["intensity"].floatValue;
+                        float threshold = effect.parameters["luminanceThreshold"].floatValue;
+                        generateNightVisionShader(*effect.shader, intensity, threshold);
                         break;
                     }
                     default:
@@ -604,6 +693,80 @@ namespace nebula {
             fragment += "void main() {\n";
             fragment += "    vec4 color = texture2D(texture, gl_TexCoord[0].xy);\n";
             fragment += "    gl_FragColor = vec4(pow(color.rgb, vec3(1.0 / gamma)), color.a);\n";
+            fragment += "}\n";
+            return shader.loadFromMemory(fragment, sf::Shader::Fragment);
+        }
+
+        bool PostProcess::generateFilmGrainShader(sf::Shader& shader, float intensity, float grainSize) {
+            std::string fragment;
+            fragment += "uniform sampler2D texture;\n";
+            fragment += "uniform float intensity;\n";
+            fragment += "uniform float grainSize;\n";
+            fragment += "void main() {\n";
+            fragment += "    vec2 uv = gl_TexCoord[0].xy;\n";
+            fragment += "    vec2 grainUV = uv * grainSize;\n";
+            fragment += "    float grain = fract(sin(dot(grainUV, vec2(12.9898, 78.233))) * 43758.5453);\n";
+            fragment += "    vec4 color = texture2D(texture, uv);\n";
+            fragment += "    gl_FragColor = mix(color, vec4(grain, grain, grain, 1.0), intensity);\n";
+            fragment += "}\n";
+            return shader.loadFromMemory(fragment, sf::Shader::Fragment);
+        }
+
+        bool PostProcess::generateSepiaShader(sf::Shader& shader, float intensity) {
+            std::string fragment;
+            fragment += "uniform sampler2D texture;\n";
+            fragment += "uniform float intensity;\n";
+            fragment += "void main() {\n";
+            fragment += "    vec4 color = texture2D(texture, gl_TexCoord[0].xy);\n";
+            fragment += "    vec3 sepia = vec3(0.393, 0.769, 0.189);\n";
+            fragment += "    vec3 sepiaColor = vec3(dot(color.rgb, sepia));\n";
+            fragment += "    gl_FragColor = vec4(mix(color.rgb, sepiaColor, intensity), color.a);\n";
+            fragment += "}\n";
+            return shader.loadFromMemory(fragment, sf::Shader::Fragment);
+        }
+
+        bool PostProcess::generatePixelationShader(sf::Shader& shader, float blockSize) {
+            std::string fragment;
+            fragment += "uniform sampler2D texture;\n";
+            fragment += "uniform float blockSize;\n";
+            fragment += "void main() {\n";
+            fragment += "    vec2 uv = gl_TexCoord[0].xy;\n";
+            fragment += "    vec2 blockUV = floor(uv * blockSize) / blockSize;\n";
+            fragment += "    gl_FragColor = texture2D(texture, blockUV);\n";
+            fragment += "}\n";
+            return shader.loadFromMemory(fragment, sf::Shader::Fragment);
+        }
+
+        bool PostProcess::generateScanlinesShader(sf::Shader& shader, float intensity, float frequency) {
+            std::string fragment;
+            fragment += "uniform sampler2D texture;\n";
+            fragment += "uniform float intensity;\n";
+            fragment += "uniform float frequency;\n";
+            fragment += "void main() {\n";
+            fragment += "    vec2 uv = gl_TexCoord[0].xy;\n";
+            fragment += "    float scanline = sin(uv.y * frequency * 800.0) * 0.5 + 0.5;\n";
+            fragment += "    vec4 color = texture2D(texture, uv);\n";
+            fragment += "    gl_FragColor = vec4(color.rgb * (1.0 - intensity * (1.0 - scanline)), color.a);\n";
+            fragment += "}\n";
+            return shader.loadFromMemory(fragment, sf::Shader::Fragment);
+        }
+
+        bool PostProcess::generateNightVisionShader(sf::Shader& shader, float intensity, float luminanceThreshold) {
+            std::string fragment;
+            fragment += "uniform sampler2D texture;\n";
+            fragment += "uniform float intensity;\n";
+            fragment += "uniform float luminanceThreshold;\n";
+            fragment += "void main() {\n";
+            fragment += "    vec2 uv = gl_TexCoord[0].xy;\n";
+            fragment += "    vec4 color = texture2D(texture, uv);\n";
+            fragment += "    float luminance = dot(color.rgb, vec3(0.299, 0.587, 0.114));\n";
+            fragment += "    float noise = fract(sin(dot(uv * 12.9898, vec2(78.233, 45.543))) * 43758.5453);\n";
+            fragment += "    float scanline = sin(uv.y * 400.0) * 0.5 + 0.5;\n";
+            fragment += "    vec3 nightColor = vec3(0.0, luminance * 1.5, 0.0);\n";
+            fragment += "    nightColor += vec3(0.0, noise * 0.1, 0.0);\n";
+            fragment += "    nightColor *= 1.0 - (1.0 - scanline) * 0.3;\n";
+            fragment += "    float mask = smoothstep(luminanceThreshold, luminanceThreshold + 0.3, luminance);\n";
+            fragment += "    gl_FragColor = vec4(mix(color.rgb, nightColor, intensity * mask), color.a);\n";
             fragment += "}\n";
             return shader.loadFromMemory(fragment, sf::Shader::Fragment);
         }
