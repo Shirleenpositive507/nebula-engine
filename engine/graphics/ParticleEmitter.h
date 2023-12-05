@@ -16,7 +16,10 @@ namespace nebula {
         enum class SpawnShape {
             Point,
             Circle,
-            Rectangle
+            Rectangle,
+            Cone,
+            Ring,
+            Line
         };
 
         struct Particle {
@@ -25,8 +28,10 @@ namespace nebula {
             sf::Color color;
             sf::Vector2f size;
             float rotation;
+            float rotationSpeed;
             float lifetime;
             float elapsed;
+            float stretchFactor;
 
             Particle()
                 : position(0.f, 0.f)
@@ -34,8 +39,10 @@ namespace nebula {
                 , color(sf::Color::White)
                 , size(1.f, 1.f)
                 , rotation(0.f)
+                , rotationSpeed(0.f)
                 , lifetime(1.f)
-                , elapsed(0.f) {}
+                , elapsed(0.f)
+                , stretchFactor(0.f) {}
         };
 
         class ParticleEmitter {
@@ -92,6 +99,27 @@ namespace nebula {
             void setRotation(float rotation);
             float getRotation() const;
 
+            void setRotationOverLifetime(float minSpeed, float maxSpeed);
+            float getRotationSpeedMin() const;
+            float getRotationSpeedMax() const;
+
+            void setTrailStretch(float factor);
+            float getTrailStretch() const;
+
+            void setConeAngle(float degrees);
+            float getConeAngle() const;
+
+            void setRingRadius(float inner, float outer);
+            float getRingInnerRadius() const;
+            float getRingOuterRadius() const;
+
+            void setLineEndpoints(const sf::Vector2f& start, const sf::Vector2f& end);
+            sf::Vector2f getLineStart() const;
+            sf::Vector2f getLineEnd() const;
+
+            void setSubEmitter(std::shared_ptr<ParticleEmitter> emitter);
+            std::shared_ptr<ParticleEmitter> getSubEmitter() const;
+
             void setTexture(const std::shared_ptr<sf::Texture>& texture);
             std::shared_ptr<sf::Texture> getTexture() const;
 
@@ -127,6 +155,17 @@ namespace nebula {
 
             sf::Vector2f m_gravity;
             float m_rotation;
+            float m_rotationSpeedMin;
+            float m_rotationSpeedMax;
+            float m_trailStretch;
+
+            float m_coneAngle;
+            float m_ringInnerRadius;
+            float m_ringOuterRadius;
+            sf::Vector2f m_lineStart;
+            sf::Vector2f m_lineEnd;
+
+            std::shared_ptr<ParticleEmitter> m_subEmitter;
 
             int m_emitCountPerBurst;
 
