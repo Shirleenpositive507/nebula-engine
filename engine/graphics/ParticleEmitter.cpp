@@ -31,6 +31,15 @@ namespace nebula {
             , m_endSize(1.f, 1.f)
             , m_gravity(0.f, 0.f)
             , m_rotation(0.f)
+            , m_rotationSpeedMin(0.f)
+            , m_rotationSpeedMax(0.f)
+            , m_trailStretch(0.f)
+            , m_coneAngle(45.f)
+            , m_ringInnerRadius(0.f)
+            , m_ringOuterRadius(10.f)
+            , m_lineStart(0.f, 0.f)
+            , m_lineEnd(0.f, 0.f)
+            , m_subEmitter(nullptr)
             , m_emitCountPerBurst(10) {}
 
         ParticleEmitter::ParticleEmitter(const std::string& name)
@@ -58,6 +67,10 @@ namespace nebula {
                 it->elapsed += dt;
 
                 if (it->elapsed >= it->lifetime) {
+                    if (m_subEmitter) {
+                        m_subEmitter->setPosition(it->position);
+                        m_subEmitter->burst(m_subEmitter->getEmitCountPerBurst());
+                    }
                     it = m_particles.erase(it);
                     continue;
                 }
@@ -83,7 +96,13 @@ namespace nebula {
                 it->size.x = std::lerp(m_startSize.x, m_endSize.x, t);
                 it->size.y = std::lerp(m_startSize.y, m_endSize.y, t);
 
+                it->rotation += it->rotationSpeed * dt;
                 it->rotation += m_rotation * dt;
+
+                if (m_trailStretch > 0.f) {
+                    float speed = it->velocity.length();
+                    it->stretchFactor = 1.f + speed * m_trailStretch * 0.01f;
+                }
 
                 ++it;
             }
@@ -334,6 +353,8 @@ namespace nebula {
                 p.color = m_startColor;
                 p.size = m_startSize;
                 p.rotation = 0.f;
+                p.rotationSpeed = randomRange(m_rotationSpeedMin, m_rotationSpeedMax);
+                p.stretchFactor = 1.f;
 
                 m_particles.push_back(p);
             }
@@ -351,6 +372,23 @@ namespace nebula {
                     float halfH = m_spawnSize.y * 0.5f;
                     return sf::Vector2f(randomRange(-halfW, halfW), randomRange(-halfH, halfH));
                 }
+                case SpawnShape::Cone: {
+                    float angle = randomRange(-m_coneAngle * 0.5f, m_coneAngle * 0.5f) * 3.14159265f / 180.f;
+                    float radius = randomRange(0.f, 1.f) * std::max(m_spawnSize.x, m_spawnSize.y) * 0.5f;
+                    return sf::Vector2f(std::cos(angle) * radius, std::sin(angle) * radius);
+                }
+                case SpawnShape::Ring: {
+                    float angle = randomRange(0.f, 360.f) * 3.14159265f / 180.f;
+                    float radius = randomRange(m_ringInnerRadius, m_ringOuterRadius);
+                    return sf::Vector2f(std::cos(angle) * radius, std::sin(angle) * radius);
+                }
+                case SpawnShape::Line: {
+                    float t = randomRange(0.f, 1.f);
+                    return sf::Vector2f(
+                        std::lerp(m_lineStart.x, m_lineEnd.x, t),
+                        std::lerp(m_lineStart.y, m_lineEnd.y, t)
+                    );
+                }
                 case SpawnShape::Point:
                 default:
                     return sf::Vector2f(0.f, 0.f);
@@ -361,6 +399,37 @@ namespace nebula {
             std::uniform_real_distribution<float> dist(min, max);
             return dist(rng());
         }
+
+        void ParticleEmitter::setRotationOverLifetime(float minSpeed, float maxSpeed) {
+            m_rotationSpeedMin = minSpeed;
+            m_rotationSpeedMax = maxSpeed;
+        }
+
+        float ParticleEmitter::getRotationSpeedMin() const { return m_rotationSpeedMin; }
+        float ParticleEmitter::getRotationSpeedMax() const { return m_rotationSpeedMax; }
+
+        void ParticleEmitter::setTrailStretch(float factor) { m_trailStretch = std::max(0.f, factor); }
+        float ParticleEmitter::getTrailStretch() const { return m_trailStretch; }
+
+        void ParticleEmitter::setConeAngle(float degrees) { m_coneAngle = std::clamp(degrees, 0.f, 360.f); }
+        float ParticleEmitter::getConeAngle() const { return m_coneAngle; }
+
+        void ParticleEmitter::setRingRadius(float inner, float outer) {
+            m_ringInnerRadius = std::max(0.f, inner);
+            m_ringOuterRadius = std::max(m_ringInnerRadius, outer);
+        }
+        float ParticleEmitter::getRingInnerRadius() const { return m_ringInnerRadius; }
+        float ParticleEmitter::getRingOuterRadius() const { return m_ringOuterRadius; }
+
+        void ParticleEmitter::setLineEndpoints(const sf::Vector2f& start, const sf::Vector2f& end) {
+            m_lineStart = start;
+            m_lineEnd = end;
+        }
+        sf::Vector2f ParticleEmitter::getLineStart() const { return m_lineStart; }
+        sf::Vector2f ParticleEmitter::getLineEnd() const { return m_lineEnd; }
+
+        void ParticleEmitter::setSubEmitter(std::shared_ptr<ParticleEmitter> emitter) { m_subEmitter = emitter; }
+        std::shared_ptr<ParticleEmitter> ParticleEmitter::getSubEmitter() const { return m_subEmitter; }
 
     }
 }
