@@ -13,17 +13,20 @@ enum class ColliderType {
     Circle,
     Polygon,
     Edge,
-    Vertex
+    Vertex,
+    Mesh,
+    Terrain
 };
 
 struct Collider {
     Vector2f offset;
     f32 offsetRotation;
     Vector2f scale;
+    f32 margin;
     bool isTrigger;
     std::string materialId;
 
-    Collider() : offset(0.0f, 0.0f), offsetRotation(0.0f), scale(1.0f, 1.0f), isTrigger(false) {}
+    Collider() : offset(0.0f, 0.0f), offsetRotation(0.0f), scale(1.0f, 1.0f), margin(0.01f), isTrigger(false) {}
     virtual ~Collider() = default;
 
     virtual ColliderType getType() const = 0;
@@ -35,6 +38,8 @@ struct Collider {
     f32 getOffsetRotation() const { return offsetRotation; }
     void setScale(const Vector2f& s) { scale = s; }
     Vector2f getScale() const { return scale; }
+    void setMargin(f32 m) { margin = std::max(0.0f, m); }
+    f32 getMargin() const { return margin; }
     void setTrigger(bool trigger) { isTrigger = trigger; }
     bool getTrigger() const { return isTrigger; }
     void setMaterialId(const std::string& id) { materialId = id; }
@@ -177,6 +182,74 @@ struct CompoundCollider : public Collider {
     static CompoundCollider* createFromColliders(const std::vector<Collider*>& colliders);
     void transformSubColliders(const Vector2f& parentPos, f32 parentRot);
     void removeOverlappingSubColliders();
+};
+
+struct MeshCollider : public Collider {
+    std::vector<Vector2f> vertices;
+    std::vector<std::pair<size_t, size_t>> edges;
+
+    MeshCollider() = default;
+    explicit MeshCollider(const std::vector<Vector2f>& verts,
+                          const std::vector<std::pair<size_t, size_t>>& edgeIndices)
+        : vertices(verts), edges(edgeIndices) {}
+
+    ColliderType getType() const override { return ColliderType::Mesh; }
+
+    Rectf getBounds() const override {
+        if (vertices.empty()) return Rectf(0, 0, 0, 0);
+        f32 minX = vertices[0].x, minY = vertices[0].y;
+        f32 maxX = vertices[0].x, maxY = vertices[0].y;
+        for (const auto& v : vertices) {
+            Vector2f sv(v.x * scale.x, v.y * scale.y);
+            Vector2f r = sv.rotated(offsetRotation);
+            minX = std::min(minX, r.x + offset.x);
+            minY = std::min(minY, r.y + offset.y);
+            maxX = std::max(maxX, r.x + offset.x);
+            maxY = std::max(maxY, r.y + offset.y);
+        }
+        return Rectf(minX, minY, maxX - minX, maxY - minY);
+    }
+
+    void addVertex(const Vector2f& v) { vertices.push_back(v); }
+    void addEdge(size_t i, size_t j) { edges.emplace_back(i, j); }
+    size_t getVertexCount() const { return vertices.size(); }
+    size_t getEdgeCount() const { return edges.size(); }
+};
+
+struct TerrainCollider : public Collider {
+    std::vector<f32> heightmap;
+    i32 width;
+    i32 height;
+    f32 tileSize;
+
+    TerrainCollider() : width(0), height(0), tileSize(1.0f) {}
+    TerrainCollider(const std::vector<f32>& hm, i32 w, i32 h, f32 ts)
+        : heightmap(hm), width(w), height(h), tileSize(ts) {}
+
+    ColliderType getType() const override { return ColliderType::Terrain; }
+
+    Rectf getBounds() const override {
+        f32 w = static_cast<f32>(width) * tileSize * scale.x;
+        f32 h = static_cast<f32>(height) * tileSize * scale.y;
+        return Rectf(offset.x, offset.y, w, h);
+    }
+
+    f32 sampleHeight(f32 x, f32 z) const {
+        if (heightmap.empty() || width <= 0 || height <= 0) return 0.0f;
+        i32 ix = static_cast<i32>(x / tileSize);
+        i32 iz = static_cast<i32>(z / tileSize);
+        ix = std::clamp(ix, 0, width - 2);
+        iz = std::clamp(iz, 0, height - 2);
+        f32 fx = (x / tileSize) - static_cast<f32>(ix);
+        f32 fz = (z / tileSize) - static_cast<f32>(iz);
+        f32 h00 = heightmap[iz * width + ix];
+        f32 h10 = heightmap[iz * width + ix + 1];
+        f32 h01 = heightmap[(iz + 1) * width + ix];
+        f32 h11 = heightmap[(iz + 1) * width + ix + 1];
+        f32 h0 = std::lerp(h00, h10, fx);
+        f32 h1 = std::lerp(h01, h11, fx);
+        return std::lerp(h0, h1, fz);
+    }
 };
 
 } // namespace nebula
