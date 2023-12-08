@@ -210,6 +210,7 @@ struct MeshCollider : public Collider {
         return Rectf(minX, minY, maxX - minX, maxY - minY);
     }
 
+    bool rayCast(const Vector2f& origin, const Vector2f& direction, f32& outT, Vector2f& outNormal) const;
     void addVertex(const Vector2f& v) { vertices.push_back(v); }
     void addEdge(size_t i, size_t j) { edges.emplace_back(i, j); }
     size_t getVertexCount() const { return vertices.size(); }

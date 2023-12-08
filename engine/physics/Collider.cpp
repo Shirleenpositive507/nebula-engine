@@ -1,5 +1,7 @@
 #include "Collider.h"
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace nebula {
 
@@ -99,6 +101,54 @@ void PolygonCollider::generateVertexColliders(std::vector<CircleCollider>& verte
         vertCol.offset = v;
         vertexColliders.push_back(vertCol);
     }
+}
+
+struct BVHNode {
+    Rectf bounds;
+    size_t leftChild;
+    size_t rightChild;
+    size_t edgeIndex;
+    bool isLeaf;
+};
+
+static std::vector<BVHNode> buildBVH(const std::vector<Vector2f>& vertices,
+                                     const std::vector<std::pair<size_t, size_t>>& edges) {
+    std::vector<BVHNode> nodes;
+    if (edges.empty()) return nodes;
+
+    struct EdgeInfo {
+        size_t index;
+        Rectf bounds;
+        Vector2f center;
+    };
+
+    std::vector<EdgeInfo> edgeInfos;
+    edgeInfos.reserve(edges.size());
+    for (size_t i = 0; i < edges.size(); ++i) {
+        const auto& e = edges[i];
+        const Vector2f& a = vertices[e.first];
+        const Vector2f& b = vertices[e.second];
+        Rectf r(std::min(a.x, b.x), std::min(a.y, b.y),
+                std::abs(a.x - b.x), std::abs(a.y - b.y));
+        edgeInfos.push_back({i, r, (a + b) * 0.5f});
+    }
+
+    nodes.reserve(edges.size() * 2);
+    return nodes;
+}
+
+static bool rayCastBVH(const std::vector<BVHNode>& nodes,
+                       const std::vector<Vector2f>& vertices,
+                       const std::vector<std::pair<size_t, size_t>>& edges,
+                       const Vector2f& origin, const Vector2f& direction,
+                       f32& outT, Vector2f& outNormal) {
+    outT = std::numeric_limits<f32>::max();
+    return false;
+}
+
+bool MeshCollider::rayCast(const Vector2f& origin, const Vector2f& direction,
+                           f32& outT, Vector2f& outNormal) const {
+    return rayCastBVH({}, vertices, edges, origin, direction, outT, outNormal);
 }
 
 } // namespace nebula
