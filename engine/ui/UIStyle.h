@@ -9,6 +9,7 @@
 #include <memory>
 #include <unordered_map>
 #include <functional>
+#include <vector>
 #include "graphics/Color.h"
 
 namespace nebula {
@@ -20,6 +21,54 @@ namespace nebula {
             Pressed,
             Focused,
             Disabled
+        };
+
+        struct BoxShadow {
+            sf::Vector2f offset;
+            float blurRadius;
+            sf::Color color;
+
+            BoxShadow() : offset(0.f, 0.f), blurRadius(0.f), color(0, 0, 0, 128) {}
+            BoxShadow(const sf::Vector2f& off, float blur, const sf::Color& col)
+                : offset(off), blurRadius(blur), color(col) {}
+        };
+
+        struct TextShadow {
+            sf::Vector2f offset;
+            sf::Color color;
+
+            TextShadow() : offset(1.f, 1.f), color(0, 0, 0, 128) {}
+            TextShadow(const sf::Vector2f& off, const sf::Color& col)
+                : offset(off), color(col) {}
+        };
+
+        enum class GradientType {
+            None,
+            Linear,
+            Radial
+        };
+
+        struct GradientBackground {
+            GradientType type;
+            sf::Color colorA;
+            sf::Color colorB;
+            sf::Vector2f pointA;
+            sf::Vector2f pointB;
+
+            GradientBackground() : type(GradientType::None), colorA(255, 255, 255), colorB(0, 0, 0),
+                pointA(0.f, 0.f), pointB(1.f, 1.f) {}
+        };
+
+        struct CornerRadii {
+            float topLeft;
+            float topRight;
+            float bottomRight;
+            float bottomLeft;
+
+            CornerRadii() : topLeft(0.f), topRight(0.f), bottomRight(0.f), bottomLeft(0.f) {}
+            explicit CornerRadii(float all) : topLeft(all), topRight(all), bottomRight(all), bottomLeft(all) {}
+            CornerRadii(float tl, float tr, float br, float bl)
+                : topLeft(tl), topRight(tr), bottomRight(br), bottomLeft(bl) {}
         };
 
         struct StyleTransition {
@@ -52,10 +101,15 @@ namespace nebula {
 
             float borderSize;
             float borderRadius;
+            CornerRadii cornerRadii;
             std::string font;
             unsigned int fontSize;
             float padding;
             float margin;
+
+            BoxShadow boxShadow;
+            TextShadow textShadow;
+            GradientBackground gradient;
 
             std::shared_ptr<sf::Texture> backgroundTexture;
             sf::IntRect backgroundImageRect;
@@ -79,6 +133,13 @@ namespace nebula {
             void setTransition(float duration);
             void inheritFrom(std::shared_ptr<UIStyle> parent);
             UIStyle resolveFinal() const;
+
+            void setBoxShadow(const sf::Vector2f& offset, float blur, const sf::Color& color);
+            void setTextShadow(const sf::Vector2f& offset, const sf::Color& color);
+            void setGradient(GradientType type, const sf::Color& a, const sf::Color& b,
+                             const sf::Vector2f& pointA = sf::Vector2f(0.f, 0.f),
+                             const sf::Vector2f& pointB = sf::Vector2f(1.f, 1.f));
+            void setCornerRadius(float tl, float tr, float br, float bl);
 
             static UIStyle Dark();
             static UIStyle Light();
