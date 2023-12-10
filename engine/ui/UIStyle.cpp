@@ -40,6 +40,10 @@ namespace nebula {
             s.backgroundTexture = backgroundTexture;
             s.backgroundImageRect = backgroundImageRect;
             s.icon = icon;
+            s.boxShadow = boxShadow;
+            s.textShadow = textShadow;
+            s.gradient = gradient;
+            s.cornerRadii = cornerRadii;
             s.transition = transition;
             s.inheritFromParent = inheritFromParent;
             s.styleSheet = styleSheet;
@@ -72,6 +76,12 @@ namespace nebula {
                 backgroundImageRect = other.backgroundImageRect;
             if (!other.icon.empty()) icon = other.icon;
             if (other.transition.enabled) transition = other.transition;
+            if (other.boxShadow.blurRadius > 0.f) boxShadow = other.boxShadow;
+            if (other.textShadow.color.a > 0) textShadow = other.textShadow;
+            if (other.gradient.type != GradientType::None) gradient = other.gradient;
+            if (other.cornerRadii.topLeft != 0.f || other.cornerRadii.topRight != 0.f ||
+                other.cornerRadii.bottomRight != 0.f || other.cornerRadii.bottomLeft != 0.f)
+                cornerRadii = other.cornerRadii;
         }
 
         void UIStyle::apply(sf::Shape& shape) const {
@@ -123,6 +133,27 @@ namespace nebula {
         void UIStyle::inheritFrom(std::shared_ptr<UIStyle> parent) {
             parentStyle = parent;
             inheritFromParent = true;
+        }
+
+        void UIStyle::setBoxShadow(const sf::Vector2f& offset, float blur, const sf::Color& color) {
+            boxShadow = BoxShadow(offset, blur, color);
+        }
+
+        void UIStyle::setTextShadow(const sf::Vector2f& offset, const sf::Color& color) {
+            textShadow = TextShadow(offset, color);
+        }
+
+        void UIStyle::setGradient(GradientType type, const sf::Color& a, const sf::Color& b,
+                                   const sf::Vector2f& pointA, const sf::Vector2f& pointB) {
+            gradient.type = type;
+            gradient.colorA = a;
+            gradient.colorB = b;
+            gradient.pointA = pointA;
+            gradient.pointB = pointB;
+        }
+
+        void UIStyle::setCornerRadius(float tl, float tr, float br, float bl) {
+            cornerRadii = CornerRadii(tl, tr, br, bl);
         }
 
         UIStyle UIStyle::resolveFinal() const {
