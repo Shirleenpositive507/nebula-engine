@@ -4,8 +4,23 @@
 #include <cstddef>
 #include <vector>
 #include <mutex>
+#include <atomic>
 
 namespace nebula {
+
+    struct PoolStatistics {
+        size_t totalAllocations;
+        size_t totalDeallocations;
+        size_t peakUsage;
+        size_t currentUsage;
+
+        PoolStatistics() : totalAllocations(0), totalDeallocations(0), peakUsage(0), currentUsage(0) {}
+    };
+
+    enum class PoolGrowthStrategy {
+        Fixed,
+        Growable
+    };
 
     class PoolAllocator {
     public:
@@ -35,6 +50,14 @@ namespace nebula {
         bool isThreadSafe() const { return m_threadSafe; }
         void setThreadSafe(bool enabled) { m_threadSafe = enabled; }
 
+        PoolStatistics getStatistics() const;
+        void resetStatistics();
+
+        void setGrowthStrategy(PoolGrowthStrategy strategy) { m_growthStrategy = strategy; }
+        PoolGrowthStrategy getGrowthStrategy() const { return m_growthStrategy; }
+        void setGrowthFactor(float factor) { m_growthFactor = factor; }
+        float getGrowthFactor() const { return m_growthFactor; }
+
     private:
         uint8_t* m_memory = nullptr;
         size_t m_blockSize = 0;
@@ -45,6 +68,12 @@ namespace nebula {
 
         bool m_threadSafe = false;
         mutable std::mutex m_mutex;
+
+        PoolStatistics m_statistics;
+        PoolGrowthStrategy m_growthStrategy = PoolGrowthStrategy::Fixed;
+        float m_growthFactor = 2.0f;
+
+        void grow();
 
         struct FreeBlock {
             FreeBlock* next;
