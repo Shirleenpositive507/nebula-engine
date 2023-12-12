@@ -68,6 +68,33 @@ namespace nebula {
         current->next = nullptr;
     }
 
+    void PoolAllocator::grow() {
+        if (m_growthStrategy != PoolGrowthStrategy::Growable) return;
+
+        size_t newBlocks = static_cast<size_t>(static_cast<float>(m_numBlocks) * m_growthFactor);
+        if (newBlocks == m_numBlocks) newBlocks = m_numBlocks + 1;
+
+        size_t oldSize = m_numBlocks * m_blockSize;
+        size_t newSize = newBlocks * m_blockSize;
+
+        uint8_t* newMemory = static_cast<uint8_t*>(NEBULA_ALIGNED_ALLOC(newSize, alignof(max_align_t)));
+        if (!newMemory) return;
+
+        if (m_memory) {
+            std::memcpy(newMemory, m_memory, oldSize);
+            NEBULA_ALIGNED_FREE(m_memory);
+        }
+
+        for (size_t i = m_numBlocks; i < newBlocks; ++i) {
+            FreeBlock* block = reinterpret_cast<FreeBlock*>(newMemory + i * m_blockSize);
+            block->next = static_cast<FreeBlock*>(m_freeList);
+            m_freeList = block;
+        }
+
+        m_memory = newMemory;
+        m_numBlocks = newBlocks;
+    }
+
     void PoolAllocator::shutdown() {
         if (m_memory) {
             NEBULA_ALIGNED_FREE(m_memory);
@@ -81,18 +108,34 @@ namespace nebula {
     void* PoolAllocator::allocate() {
         if (m_threadSafe) {
             std::lock_guard<std::mutex> lock(m_mutex);
+            if (!m_freeList && m_growthStrategy == PoolGrowthStrategy::Growable) {
+                grow();
+            }
             if (!m_freeList) return nullptr;
             FreeBlock* block = static_cast<FreeBlock*>(m_freeList);
             m_freeList = block->next;
             ++m_numUsedBlocks;
+            m_statistics.totalAllocations++;
+            if (m_numUsedBlocks > m_statistics.peakUsage) {
+                m_statistics.peakUsage = m_numUsedBlocks;
+            }
+            m_statistics.currentUsage = m_numUsedBlocks;
             std::memset(block, 0, m_blockSize);
             return block;
         }
 
+        if (!m_freeList && m_growthStrategy == PoolGrowthStrategy::Growable) {
+            grow();
+        }
         if (!m_freeList) return nullptr;
         FreeBlock* block = static_cast<FreeBlock*>(m_freeList);
         m_freeList = block->next;
         ++m_numUsedBlocks;
+        m_statistics.totalAllocations++;
+        if (m_numUsedBlocks > m_statistics.peakUsage) {
+            m_statistics.peakUsage = m_numUsedBlocks;
+        }
+        m_statistics.currentUsage = m_numUsedBlocks;
         std::memset(block, 0, m_blockSize);
         return block;
     }
@@ -106,6 +149,8 @@ namespace nebula {
             block->next = static_cast<FreeBlock*>(m_freeList);
             m_freeList = block;
             --m_numUsedBlocks;
+            m_statistics.totalDeallocations++;
+            m_statistics.currentUsage = m_numUsedBlocks;
             return;
         }
 
@@ -113,6 +158,8 @@ namespace nebula {
         block->next = static_cast<FreeBlock*>(m_freeList);
         m_freeList = block;
         --m_numUsedBlocks;
+        m_statistics.totalDeallocations++;
+        m_statistics.currentUsage = m_numUsedBlocks;
     }
 
     void PoolAllocator::reset() {
@@ -137,6 +184,27 @@ namespace nebula {
         }
         current->next = nullptr;
         m_numUsedBlocks = 0;
+    }
+
+    PoolStatistics PoolAllocator::getStatistics() const {
+        if (m_threadSafe) {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            PoolStatistics stats = m_statistics;
+            stats.currentUsage = m_numUsedBlocks;
+            return stats;
+        }
+        PoolStatistics stats = m_statistics;
+        stats.currentUsage = m_numUsedBlocks;
+        return stats;
+    }
+
+    void PoolAllocator::resetStatistics() {
+        if (m_threadSafe) {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_statistics = PoolStatistics();
+            return;
+        }
+        m_statistics = PoolStatistics();
     }
 
     StackAllocator::StackAllocator(StackAllocator&& other) noexcept
