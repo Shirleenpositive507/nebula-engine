@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <fstream>
 #include <unordered_map>
+#include <map>
+#include <set>
 
 #include "engine/scene/Scene.h"
 #include "engine/scene/SceneNode.h"
@@ -41,6 +43,41 @@ struct ThumbnailData {
     std::vector<uint8_t> pixels;
 };
 
+struct PrefabOverride {
+    std::string propertyPath;
+    std::string originalValue;
+    std::string overrideValue;
+
+    PrefabOverride() = default;
+    PrefabOverride(const std::string& path, const std::string& orig, const std::string& over)
+        : propertyPath(path), originalValue(orig), overrideValue(over) {}
+};
+
+struct PrefabVariant {
+    std::string prefabPath;
+    std::vector<PrefabOverride> overrides;
+
+    PrefabVariant() = default;
+    explicit PrefabVariant(const std::string& path) : prefabPath(path) {}
+};
+
+struct SceneDiffEntry {
+    enum class ChangeType { Added, Removed, Modified };
+
+    ChangeType type;
+    std::string nodePath;
+    std::string propertyName;
+    std::string oldValue;
+    std::string newValue;
+
+    SceneDiffEntry() = default;
+    SceneDiffEntry(ChangeType t, const std::string& path)
+        : type(t), nodePath(path) {}
+    SceneDiffEntry(ChangeType t, const std::string& path, const std::string& prop,
+                   const std::string& oldVal, const std::string& newVal)
+        : type(t), nodePath(path), propertyName(prop), oldValue(oldVal), newValue(newVal) {}
+};
+
 class SceneSerializer {
 public:
     static constexpr uint32_t BINARY_MAGIC = 0x4E42494E;
@@ -69,6 +106,17 @@ public:
 
     SceneNode::Ptr loadPrefab(const std::string& path);
     SceneNode::Ptr instantiatePrefab(const std::string& path, Scene::Ptr scene);
+
+    SceneNode::Ptr instantiatePrefabVariant(const PrefabVariant& variant, Scene::Ptr scene);
+    PrefabVariant createPrefabVariant(const std::string& prefabPath,
+                                       const std::vector<PrefabOverride>& overrides);
+
+    bool mergeScenes(const std::string& basePath, const std::string& overlayPath,
+                     const std::string& outputPath);
+    Scene::Ptr mergeScenes(Scene::Ptr baseScene, Scene::Ptr overlayScene);
+
+    std::vector<SceneDiffEntry> diffScenes(Scene::Ptr oldScene, Scene::Ptr newScene);
+    std::vector<SceneDiffEntry> diffScenes(const std::string& oldPath, const std::string& newPath);
 
     std::vector<SceneDependencyInfo> getSceneDependencies(const std::string& path) const;
     void setSceneDependencies(const std::string& path, const std::vector<SceneDependencyInfo>& deps);
@@ -103,6 +151,8 @@ private:
 
     bool writeBinaryHeader(std::ofstream& file, const BinarySceneHeader& header) const;
     BinarySceneHeader readBinaryHeader(std::ifstream& file) const;
+
+    std::string applyPrefabOverride(const std::string& json, const PrefabOverride& override) const;
 };
 
 } // namespace scene
