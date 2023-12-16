@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <set>
 
 namespace engine {
 namespace scene {
@@ -230,6 +231,126 @@ Color SceneSerializer::deserializeColor(const std::string& str) const
 {
     Color c;
     return c;
+}
+
+SceneNode::Ptr SceneSerializer::instantiatePrefabVariant(const PrefabVariant& variant, Scene::Ptr scene) {
+    auto node = loadPrefab(variant.prefabPath);
+    if (!node) return nullptr;
+
+    std::string json = serializeNodeRecursive(node, 0);
+    for (const auto& override_ : variant.overrides) {
+        json = applyPrefabOverride(json, override_);
+    }
+
+    auto result = deserializeEntity(json, scene);
+    if (result && scene) {
+        scene->getRootNode()->addChild(result);
+    }
+    return result;
+}
+
+PrefabVariant SceneSerializer::createPrefabVariant(const std::string& prefabPath,
+                                                     const std::vector<PrefabOverride>& overrides) {
+    PrefabVariant variant(prefabPath);
+    variant.overrides = overrides;
+    return variant;
+}
+
+bool SceneSerializer::mergeScenes(const std::string& basePath, const std::string& overlayPath,
+                                   const std::string& outputPath) {
+    auto baseScene = deserialize(basePath);
+    auto overlayScene = deserialize(overlayPath);
+    if (!baseScene || !overlayScene) return false;
+
+    auto merged = mergeScenes(baseScene, overlayScene);
+    if (!merged) return false;
+
+    return serialize(merged, outputPath);
+}
+
+Scene::Ptr SceneSerializer::mergeScenes(Scene::Ptr baseScene, Scene::Ptr overlayScene) {
+    if (!baseScene || !overlayScene) return nullptr;
+
+    auto result = std::make_shared<Scene>("merged");
+    result->setAmbientColor(baseScene->getAmbientColor());
+    result->setBackgroundColor(baseScene->getBackgroundColor());
+    result->setGravity(baseScene->getGravity());
+
+    for (auto& [id, layer] : baseScene->getLayers()) {
+        result->addLayer(id, layer.name, layer.enabled);
+    }
+    for (auto& [id, layer] : overlayScene->getLayers()) {
+        if (!result->hasLayer(id)) {
+            result->addLayer(id, layer.name, layer.enabled);
+        }
+    }
+
+    auto baseRoot = baseScene->getRootNode();
+    auto overlayRoot = overlayScene->getRootNode();
+
+    std::set<std::string> processedNodes;
+    for (const auto& child : overlayRoot->getChildren()) {
+        auto cloned = std::make_shared<SceneNode>(*child);
+        result->getRootNode()->addChild(cloned);
+        processedNodes.insert(child->getName());
+    }
+    for (const auto& child : baseRoot->getChildren()) {
+        if (processedNodes.find(child->getName()) == processedNodes.end()) {
+            auto cloned = std::make_shared<SceneNode>(*child);
+            result->getRootNode()->addChild(cloned);
+        }
+    }
+
+    return result;
+}
+
+std::vector<SceneDiffEntry> SceneSerializer::diffScenes(Scene::Ptr oldScene, Scene::Ptr newScene) {
+    std::vector<SceneDiffEntry> diffs;
+    if (!oldScene || !newScene) return diffs;
+
+    std::set<std::string> oldNodes, newNodes;
+    auto collectNames = [](SceneNode::Ptr node, std::set<std::string>& names, auto& self) -> void {
+        if (!node) return;
+        names.insert(node->getName());
+        for (const auto& child : node->getChildren()) {
+            self(child, names, self);
+        }
+    };
+
+    if (oldScene->getRootNode()) {
+        collectNames(oldScene->getRootNode(), oldNodes, collectNames);
+    }
+    if (newScene->getRootNode()) {
+        collectNames(newScene->getRootNode(), newNodes, collectNames);
+    }
+
+    for (const auto& name : newNodes) {
+        if (oldNodes.find(name) == oldNodes.end()) {
+            diffs.emplace_back(SceneDiffEntry::ChangeType::Added, name);
+        }
+    }
+    for (const auto& name : oldNodes) {
+        if (newNodes.find(name) == newNodes.end()) {
+            diffs.emplace_back(SceneDiffEntry::ChangeType::Removed, name);
+        }
+    }
+
+    return diffs;
+}
+
+std::vector<SceneDiffEntry> SceneSerializer::diffScenes(const std::string& oldPath, const std::string& newPath) {
+    auto oldScene = deserialize(oldPath);
+    auto newScene = deserialize(newPath);
+    return diffScenes(oldScene, newScene);
+}
+
+std::string SceneSerializer::applyPrefabOverride(const std::string& json, const PrefabOverride& override_) const {
+    std::string result = json;
+    size_t pos = result.find(override_.originalValue);
+    if (pos != std::string::npos) {
+        result.replace(pos, override_.originalValue.length(), override_.overrideValue);
+    }
+    return result;
 }
 
 } // namespace scene
