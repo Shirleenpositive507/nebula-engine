@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <thread>
 #include <mutex>
+#include <memory>
 #include "Component.h"
 #include "Archetype.h"
 #include "Entity.h"
@@ -28,6 +29,15 @@ struct QueryChangeInfo {
     std::vector<Entity> added;
     std::vector<Entity> removed;
     u32 frameNumber;
+};
+
+struct ChunkInfo {
+    size_t startIndex;
+    size_t endIndex;
+    size_t chunkSize;
+
+    ChunkInfo() : startIndex(0), endIndex(0), chunkSize(0) {}
+    ChunkInfo(size_t start, size_t end) : startIndex(start), endIndex(end), chunkSize(end - start) {}
 };
 
 class Query {
@@ -54,12 +64,20 @@ public:
     void parallelForEach(std::function<void(Entity)> callback) const;
     void parallelForEach(std::function<void(EntityHandle)> callback) const;
 
+    void parallelForEachChunked(std::function<void(const ChunkInfo&, const std::vector<Entity>&)> callback,
+                                 size_t chunkSize = 64) const;
+
     bool matches(const Archetype& archetype) const;
     void invalidate();
     void forceRefresh();
     bool isValid() const { return mValid; }
 
     void setEntityManager(EntityManager* manager) { mManager = manager; }
+
+    void setUseJobSystem(bool enable) { mUseJobSystem = enable; }
+    bool isUsingJobSystem() const { return mUseJobSystem; }
+    void setMaxWorkerThreads(u32 count) { mMaxWorkerThreads = count; }
+    u32 getMaxWorkerThreads() const { return mMaxWorkerThreads; }
 
     const std::vector<ComponentType>& getWithAll() const { return mWithAll; }
     const std::vector<ComponentType>& getWithAny() const { return mWithAny; }
@@ -83,6 +101,12 @@ private:
     mutable QueryChangeInfo mChangeInfo;
     u32 mFrameNumber = 0;
     mutable u32 mLastCacheFrame = 0;
+    bool mUseJobSystem = false;
+    u32 mMaxWorkerThreads = 0;
+
+    void dispatchChunks(const std::vector<Entity>& entities,
+                        std::function<void(const ChunkInfo&, const std::vector<Entity>&)> callback,
+                        size_t chunkSize) const;
 };
 
 class View {
