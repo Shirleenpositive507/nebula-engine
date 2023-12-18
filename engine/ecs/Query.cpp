@@ -144,6 +144,69 @@ void Query::parallelForEach(std::function<void(EntityHandle)> callback) const {
     });
 }
 
+void Query::parallelForEachChunked(std::function<void(const ChunkInfo&, const std::vector<Entity>&)> callback,
+                                    size_t chunkSize) const {
+    if (mCacheEnabled && mValid) {
+        dispatchChunks(mCachedResults, callback, chunkSize);
+        return;
+    }
+
+    std::vector<Entity> entities;
+    mManager->queryEntities(*this, [&](Entity entity) {
+        entities.push_back(entity);
+    });
+    dispatchChunks(entities, callback, chunkSize);
+}
+
+void Query::dispatchChunks(const std::vector<Entity>& entities,
+                            std::function<void(const ChunkInfo&, const std::vector<Entity>&)> callback,
+                            size_t chunkSize) const {
+    if (entities.empty()) return;
+
+    u32 numThreads = mMaxWorkerThreads;
+    if (numThreads == 0) {
+        numThreads = static_cast<u32>(std::thread::hardware_concurrency());
+        if (numThreads == 0) numThreads = 4;
+    }
+
+    size_t totalEntities = entities.size();
+    size_t numChunks = (totalEntities + chunkSize - 1) / chunkSize;
+    size_t threadsToUse = std::min(static_cast<size_t>(numThreads), numChunks);
+
+    if (!mUseJobSystem || threadsToUse <= 1) {
+        ChunkInfo full(0, totalEntities);
+        callback(full, entities);
+        return;
+    }
+
+    std::vector<std::thread> threads;
+    threads.reserve(threadsToUse);
+
+    size_t chunkStride = (numChunks + threadsToUse - 1) / threadsToUse;
+
+    for (size_t t = 0; t < threadsToUse; ++t) {
+        size_t startChunk = t * chunkStride;
+        size_t endChunk = std::min(startChunk + chunkStride, numChunks);
+
+        threads.emplace_back([&entities, callback, startChunk, endChunk, chunkSize]() {
+            for (size_t c = startChunk; c < endChunk; ++c) {
+                size_t start = c * chunkSize;
+                size_t end = std::min(start + chunkSize, entities.size());
+                if (start >= end) break;
+
+                ChunkInfo chunk(start, end);
+                std::vector<Entity> chunkEntities(entities.begin() + static_cast<ptrdiff_t>(start),
+                                                   entities.begin() + static_cast<ptrdiff_t>(end));
+                callback(chunk, chunkEntities);
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+}
+
 template <typename... Components>
 void Query::forEach(std::function<void(Entity, Components&...)> callback) const {
     mManager->queryComponents<Components...>(*this, callback);
