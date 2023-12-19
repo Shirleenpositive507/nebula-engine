@@ -30,6 +30,19 @@ namespace nebula {
         bool isWatching() const { return m_watchChanges; }
         void setChangeCallback(std::function<void()> callback);
 
+        bool migrate(uint32_t fromVersion, uint32_t toVersion);
+        uint32_t getVersion() const { return m_version; }
+        void setVersion(uint32_t version) { m_version = version; }
+        void registerMigration(uint32_t fromVersion, uint32_t toVersion, std::function<bool(Config&)> migrationFn);
+
+        void setEncryptionKey(const std::string& key) { m_encryptionKey = key; }
+        std::string getEncryptionKey() const { return m_encryptionKey; }
+        void setEncryptSensitiveKeys(bool encrypt) { m_encryptSensitive = encrypt; }
+        bool isEncryptSensitiveKeys() const { return m_encryptSensitive; }
+        void addSensitiveKey(const std::string& key);
+        std::string encrypt(const std::string& value) const;
+        std::string decrypt(const std::string& value) const;
+
         template<typename T>
         T get(const std::string& key, const T& defaultValue = T()) const {
             auto it = m_values.find(key);
@@ -95,6 +108,11 @@ namespace nebula {
         bool m_watchChanges = false;
         std::function<void()> m_changeCallback;
         std::time_t m_lastWriteTime = 0;
+        uint32_t m_version = 0;
+        std::string m_encryptionKey;
+        bool m_encryptSensitive = false;
+        std::vector<std::string> m_sensitiveKeys;
+        std::unordered_map<uint32_t, std::pair<uint32_t, std::function<bool(Config&)>>> m_migrations;
     };
 
 }
