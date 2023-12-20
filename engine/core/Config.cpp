@@ -3,6 +3,8 @@
 #include <iostream>
 #include <regex>
 #include <filesystem>
+#include <sstream>
+#include <iomanip>
 
 namespace nebula {
 
@@ -209,6 +211,67 @@ namespace nebula {
 
     bool Config::getBool(const std::string& key, bool defaultValue) const {
         return get<bool>(key, defaultValue);
+    }
+
+    bool Config::migrate(uint32_t fromVersion, uint32_t toVersion) {
+        uint32_t current = fromVersion;
+        while (current < toVersion) {
+            auto it = m_migrations.find(current);
+            if (it == m_migrations.end()) {
+                NEBULA_ERROR("No migration path from version " + std::to_string(current));
+                return false;
+            }
+            uint32_t nextVersion = it->second.first;
+            auto& migrationFn = it->second.second;
+            if (!migrationFn(*this)) {
+                NEBULA_ERROR("Migration from version " + std::to_string(current) + " failed");
+                return false;
+            }
+            current = nextVersion;
+        }
+        m_version = toVersion;
+        NEBULA_INFO("Config migrated to version " + std::to_string(toVersion));
+        return true;
+    }
+
+    void Config::registerMigration(uint32_t fromVersion, uint32_t toVersion, std::function<bool(Config&)> migrationFn) {
+        m_migrations[fromVersion] = {toVersion, migrationFn};
+    }
+
+    void Config::addSensitiveKey(const std::string& key) {
+        m_sensitiveKeys.push_back(key);
+    }
+
+    std::string Config::encrypt(const std::string& value) const {
+        if (m_encryptionKey.empty()) return value;
+
+        std::string result = value;
+        for (size_t i = 0; i < result.size(); ++i) {
+            result[i] ^= m_encryptionKey[i % m_encryptionKey.size()];
+        }
+
+        std::ostringstream hexStream;
+        for (unsigned char c : result) {
+            hexStream << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
+        }
+        return hexStream.str();
+    }
+
+    std::string Config::decrypt(const std::string& value) const {
+        if (m_encryptionKey.empty()) return value;
+        if (value.size() % 2 != 0) return value;
+
+        std::string decoded;
+        for (size_t i = 0; i < value.size(); i += 2) {
+            std::string byteStr = value.substr(i, 2);
+            char byte = static_cast<char>(std::stoi(byteStr, nullptr, 16));
+            decoded += byte;
+        }
+
+        for (size_t i = 0; i < decoded.size(); ++i) {
+            decoded[i] ^= m_encryptionKey[i % m_encryptionKey.size()];
+        }
+        return decoded;
     }
 
     std::string Config::trim(const std::string& str) const {
