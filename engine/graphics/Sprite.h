@@ -5,11 +5,31 @@
 #include <SFML/Graphics/Rect.hpp>
 #include <SFML/Graphics/Color.hpp>
 #include <SFML/Graphics/RenderTarget.hpp>
+#include <SFML/Graphics/VertexArray.hpp>
 #include <SFML/System/Vector2.hpp>
 #include <memory>
+#include <vector>
 
 namespace nebula {
     namespace graphics {
+
+        struct NinePatchSlice {
+            int left;
+            int right;
+            int top;
+            int bottom;
+
+            NinePatchSlice() : left(0), right(0), top(0), bottom(0) {}
+            NinePatchSlice(int l, int r, int t, int b) : left(l), right(r), top(t), bottom(b) {}
+        };
+
+        struct FlipBookFrame {
+            sf::IntRect rect;
+            float duration;
+
+            FlipBookFrame() : rect(0, 0, 0, 0), duration(0.1f) {}
+            FlipBookFrame(const sf::IntRect& r, float d) : rect(r), duration(d) {}
+        };
 
         class Sprite {
         public:
@@ -68,6 +88,21 @@ namespace nebula {
 
             void fitToRect(const sf::FloatRect& rect, bool keepAspectRatio = true);
 
+            void enableNinePatch(const NinePatchSlice& slice);
+            void disableNinePatch();
+            bool isNinePatchEnabled() const;
+            NinePatchSlice getNinePatchSlice() const;
+
+            void setTiling(bool enabled, const sf::Vector2f& tileSize = sf::Vector2f(0.f, 0.f));
+            bool isTilingEnabled() const;
+
+            void setFlipBook(const std::vector<FlipBookFrame>& frames);
+            void clearFlipBook();
+            void updateFlipBook(float dt);
+            void setFlipBookFrame(size_t index);
+            size_t getFlipBookFrame() const;
+            size_t getFlipBookFrameCount() const;
+
             void draw(sf::RenderTarget& target, const sf::RenderStates& states = sf::RenderStates::Default) const;
 
             sf::Sprite& getSFMLSprite();
@@ -85,7 +120,20 @@ namespace nebula {
             bool m_flippedX;
             bool m_flippedY;
 
+            bool m_ninePatchEnabled;
+            NinePatchSlice m_ninePatchSlice;
+
+            bool m_tilingEnabled;
+            sf::Vector2f m_tileSize;
+
+            std::vector<FlipBookFrame> m_flipBookFrames;
+            size_t m_flipBookCurrent;
+            float m_flipBookElapsed;
+            bool m_flipBookPlaying;
+
             void applyColor();
+            void drawNinePatch(sf::RenderTarget& target, const sf::RenderStates& states) const;
+            void drawTiled(sf::RenderTarget& target, const sf::RenderStates& states) const;
         };
 
     }
